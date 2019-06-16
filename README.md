@@ -4,7 +4,7 @@ Cross platfrom package manager
 ## Description
 Search and install rust binaires
 
-# Usage
+## Usage
 `rustman $package`
 
 ## Example
