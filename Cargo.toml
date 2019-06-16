@@ -3,6 +3,10 @@ name = "rustman"
 version = "0.1.0"
 authors = ["Nbiba Bedis <bedisnbiba@gmail.com>"]
 edition = "2018"
+readme = "README.md"
+description = "Cross platfrom package manager"
+repository = "https://github.com/sigmaSd/rustman"
+license = "MIT"
 
 [dependencies]
 http_req = "0.5.0"
