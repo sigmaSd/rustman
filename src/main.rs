@@ -15,13 +15,16 @@ fn main() {
         .collect::<Vec<String>>();
 
     let hit_c = hit.clone();
-    res.par_iter().for_each(move |l| {
-        let mut l = l.split('=');
-        let n = l.next().unwrap().trim().to_string();
-        let v = parse_version(l.next().unwrap());
+    res.par_iter().for_each(move |line| {
+        if line.starts_with("...") {
+            return;
+        }
+        let mut line = line.split('=');
+        let n = line.next().unwrap().trim().to_string();
+        let (v, d) = parse_version_desc(line.next().unwrap());
 
         if is_bin(&n, &v) {
-            hit_c.lock().unwrap().push((n, v));
+            hit_c.lock().unwrap().push((n, v, d));
         }
     });
 
@@ -41,26 +44,15 @@ fn search(_s: &str) -> io::Result<String> {
     Ok("irust = \"0.6.1\" ".to_string())
 }
 
-fn parse_version(s: &str) -> String {
-    let mut ss = String::new();
-    let mut parse = false;
-    for c in s.chars() {
-        if parse {
-            ss.push(c);
-        }
-        if c == '"' {
-            if parse {
-                // snd quote
-                break;
-            } else {
-                // fst quote
-                parse = true;
-            }
-        }
-    }
-    // pop last quote
-    ss.pop();
-    ss
+fn parse_version_desc(s: &str) -> (String, String) {
+    let mut s = s.split('#');
+    let v = s.next().unwrap();
+    let d = s.next().unwrap();
+    let mut v = v.trim()[1..].to_string();
+    v.pop();
+    let d = d.trim().to_string();
+
+    (v, d)
 }
 
 #[cfg(not(test))]
@@ -77,21 +69,26 @@ fn is_bin(_n: &str, _v: &str) -> bool {
     true
 }
 
-fn main_loop(r: Vec<(String, String)>) {
+fn main_loop(r: Vec<(String, String, String)>) {
     let installed = look_for_installed(&r);
     let num = r.len();
-    for (i, (n, v)) in r.iter().enumerate() {
+    for (i, (n, v, d)) in r.iter().enumerate() {
         let suffix = if installed.contains(&n) {
             "(Installed)"
         } else {
             ""
         };
+
+        let v = format!("\"{}\"", v).green();
+        let d = format!("#{}", d).purple();
+
         println!(
-            "{} {} = \"{}\" {}",
+            "{} {} = {} {} {}",
             (num - i).to_string().yellow(),
             n.to_string().blue(),
-            v.to_string().green(),
-            suffix.red()
+            v,
+            suffix.red(),
+            d,
         );
     }
     println!(
@@ -117,8 +114,8 @@ fn install(s: &str) {
         .unwrap();
 }
 
-fn look_for_installed(r: &[(String, String)]) -> Vec<String> {
-    let r_names: Vec<&String> = r.iter().map(|(n, _v)| n).collect();
+fn look_for_installed(r: &[(String, String, String)]) -> Vec<String> {
+    let r_names: Vec<&String> = r.iter().map(|(n, _v, _d)| n).collect();
 
     fs::read_dir(dirs::home_dir().unwrap().join(".cargo/bin"))
         .unwrap()

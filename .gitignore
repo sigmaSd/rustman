@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 /crates.io-index
+/flamegraph.svg
+/Cargo.lock
+/perf.data
