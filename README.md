@@ -9,5 +9,5 @@ Search and install rust binaires
 
 ## Example
 `rustman repl` 
-```
+
 <img src="./rustman.png" width="80%" height="60%">
