@@ -1,9 +1,9 @@
-use colored::*;
 use rayon::prelude::*;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 fn main() {
     let s = std::env::args().nth(1).unwrap();
@@ -28,7 +28,16 @@ fn main() {
         }
     });
 
-    main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap());
+    match main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap()) {
+        Ok(_) => (),
+        Err(e) => {
+            let mut stdout = StandardStream::stdout(ColorChoice::Always);
+            stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
+                .unwrap();
+            writeln!(&mut stdout, "Something happened! {}\n Rustman Out", e).unwrap();
+        }
+    };
 }
 
 #[cfg(not(test))]
@@ -69,9 +78,16 @@ fn is_bin(_n: &str, _v: &str) -> bool {
     true
 }
 
-fn main_loop(r: Vec<(String, String, String)>) {
+fn main_loop(r: Vec<(String, String, String)>) -> io::Result<()> {
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let installed = look_for_installed(&r);
     let num = r.len();
+    if num == 0 {
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+        writeln!(&mut stdout, "No matches found!")?;
+        return Ok(());
+    }
+
     for (i, (n, v, d)) in r.iter().enumerate() {
         let suffix = if installed.contains(&n) {
             "(Installed)"
@@ -79,30 +95,50 @@ fn main_loop(r: Vec<(String, String, String)>) {
             ""
         };
 
-        let v = format!("\"{}\"", v).green();
-        let d = format!("#{}", d).purple();
-
-        println!(
-            "{} {} = {} {} {}",
-            (num - i).to_string().yellow(),
-            n.to_string().blue(),
-            v,
-            suffix.red(),
-            d,
-        );
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
+        write!(&mut stdout, "{}", num - i)?;
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+        write!(&mut stdout, " {}", n)?;
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Black)))?;
+        write!(&mut stdout, " = ")?;
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+        write!(&mut stdout, "\"{}\"", v)?;
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red)))?;
+        write!(&mut stdout, " {}", suffix)?;
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)))?;
+        writeln!(&mut stdout, " #{}", d)?;
     }
-    println!(
-        "{}",
-        "==> Packages to install (eg: 1 2 3, 1-3 or ^4)".cyan()
-    );
+
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+    writeln!(
+        &mut stdout,
+        "==> Packages to install (eg: 1 2 3, 1-3 or ^4)"
+    )?;
+    write!(&mut stdout, "==> ")?;
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
+    stdout.flush()?;
 
     let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
+    io::stdin().read_line(&mut input)?;
 
-    let reqeusted = r.get(num - input.trim_end().parse::<usize>().unwrap());
+    let index = num.saturating_sub(
+        input
+            .trim_end()
+            .parse::<usize>()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "error while parsing input"))?,
+    );
+    let reqeusted = r.get(index);
+
     if let Some(req) = reqeusted {
         install(&req.0);
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "0 is not a valid input",
+        ));
     }
+
+    Ok(())
 }
 
 fn install(s: &str) {
