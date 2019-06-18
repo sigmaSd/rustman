@@ -178,6 +178,8 @@ fn look_for_installed(r: &[(String, String, String)]) -> Vec<String> {
                 .to_str()
                 .unwrap()
                 .to_string();
+            let file_name = remove_extention(file_name);
+
             if r_names.contains(&&file_name) {
                 Some(file_name)
             } else {
@@ -234,5 +236,13 @@ impl Progress {
         write!(&mut self.printer, "\r").unwrap();
         write!(&mut self.printer, "\t\t[{}{}]", progress, remaining).unwrap();
         self.printer.flush().unwrap();
+    }
+}
+
+fn remove_extention(s: String) -> String {
+    if s.contains('.') {
+        s.rsplit('.').nth(1).unwrap().to_owned()
+    } else {
+        s
     }
 }
