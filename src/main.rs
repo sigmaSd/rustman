@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 fn main() {
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let s = std::env::args().nth(1).unwrap();
     let hit = Arc::new(Mutex::new(vec![]));
     let res = search(&s)
@@ -13,6 +14,16 @@ fn main() {
         .lines()
         .map(ToOwned::to_owned)
         .collect::<Vec<String>>();
+
+    if res.is_empty() {
+        stdout
+            .set_color(ColorSpec::new().set_fg(Some(Color::Blue)))
+            .unwrap();
+        writeln!(&mut stdout, "No matches found!").unwrap();
+        return;
+    }
+
+    let progress = Arc::new(Mutex::new(Progress::new(res.len())));
 
     let hit_c = hit.clone();
     res.par_iter().for_each(move |line| {
@@ -26,12 +37,16 @@ fn main() {
         if is_bin(&n, &v) {
             hit_c.lock().unwrap().push((n, v, d));
         }
+        progress.lock().unwrap().advance();
+        progress.lock().unwrap().print();
     });
+
+    //new line
+    println!();
 
     match main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap()) {
         Ok(_) => (),
         Err(e) => {
-            let mut stdout = StandardStream::stdout(ColorChoice::Always);
             stdout
                 .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
                 .unwrap();
@@ -175,4 +190,49 @@ fn look_for_installed(r: &[(String, String, String)]) -> Vec<String> {
 #[test]
 fn t() {
     main();
+}
+
+struct Progress {
+    width: usize,
+    current: usize,
+    step: usize,
+    printer: StandardStream,
+}
+
+impl Progress {
+    fn new(max: usize) -> Self {
+        let mut printer = StandardStream::stdout(ColorChoice::Always);
+        printer
+            .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
+            .unwrap();
+
+        let width = max / 2;
+        let step = max / width;
+        let current = 0;
+
+        Self {
+            width,
+            step,
+            current,
+            printer,
+        }
+    }
+
+    fn advance(&mut self) {
+        self.current += 1;
+    }
+
+    fn print(&mut self) {
+        let progress = self.current.checked_div(self.step).unwrap_or(0);
+        let remaining = match self.width.checked_sub(progress) {
+            Some(n) => n,
+            None => return,
+        };
+        let progress: String = std::iter::repeat('#').take(progress).collect();
+        let remaining: String = std::iter::repeat(' ').take(remaining).collect();
+
+        write!(&mut self.printer, "\r").unwrap();
+        write!(&mut self.printer, "\t\t[{}{}]", progress, remaining).unwrap();
+        self.printer.flush().unwrap();
+    }
 }
