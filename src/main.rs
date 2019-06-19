@@ -1,4 +1,3 @@
-use rayon::prelude::*;
 use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
@@ -26,20 +25,31 @@ fn main() {
     let progress = Arc::new(Mutex::new(Progress::new(res.len())));
 
     let hit_c = hit.clone();
-    res.par_iter().for_each(move |line| {
-        if line.starts_with("...") {
-            return;
-        }
-        let mut line = line.split('=');
-        let n = line.next().unwrap().trim().to_string();
-        let (v, d) = parse_version_desc(line.next().unwrap());
+    let mut threads = vec![];
+    for line in res {
+        let hit_cc = hit_c.clone();
+        let progress_c = progress.clone();
+        threads.push(std::thread::spawn(move || {
+            if line.starts_with("...") {
+                return;
+            }
+            let mut line = line.split('=');
+            let n = line.next().unwrap().trim().to_string();
+            let (v, d) = parse_version_desc(line.next().unwrap());
 
-        if is_bin(&n, &v) {
-            hit_c.lock().unwrap().push((n, v, d));
-        }
-        progress.lock().unwrap().advance();
-        progress.lock().unwrap().print();
-    });
+            if is_bin(&n, &v) {
+                hit_cc.lock().unwrap().push((n, v, d));
+                progress_c.lock().unwrap().advance();
+                progress_c.lock().unwrap().print();
+            }
+        }));
+    }
+    for t in threads {
+        t.join().unwrap();
+    }
+
+    // keep only one strong refrence to hit so we can unwrap safely
+    drop(hit_c);
 
     //new line
     println!();
