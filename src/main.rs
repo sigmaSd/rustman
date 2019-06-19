@@ -6,7 +6,17 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 fn main() {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    let s = std::env::args().nth(1).unwrap();
+    let s = match std::env::args().nth(1) {
+        Some(s) => s,
+        None => {
+            stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Blue)))
+                .unwrap();
+            writeln!(&mut stdout, "No pacakge specified!").unwrap();
+            return;
+        }
+    };
+
     let hit = Arc::new(Mutex::new(vec![]));
     let res = search(&s)
         .unwrap()
@@ -81,7 +91,8 @@ fn search(_s: &str) -> io::Result<String> {
 fn parse_version_desc(s: &str) -> (String, String) {
     let mut s = s.split('#');
     let v = s.next().unwrap();
-    let d = s.next().unwrap();
+    // description is optional
+    let d = s.next().unwrap_or("");
     let mut v = v.trim()[1..].to_string();
     v.pop();
     let d = d.trim().to_string();
@@ -130,8 +141,12 @@ fn main_loop(r: Vec<(String, String, String)>) -> io::Result<()> {
         write!(&mut stdout, "\"{}\"", v)?;
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red)))?;
         write!(&mut stdout, " {}", suffix)?;
-        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)))?;
-        writeln!(&mut stdout, " #{}", d)?;
+        // description is optional
+        if !d.is_empty() {
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)))?;
+            write!(&mut stdout, " #{}", d)?;
+        }
+        writeln!(&mut stdout)?;
     }
 
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;

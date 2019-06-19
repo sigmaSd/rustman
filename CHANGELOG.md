@@ -1,3 +1,8 @@
+**0.1.7**
+
+- Make description optional (fixes panic)
+- Handle no input error
+
 **0.1.6**
 
 - Use std::thread instead of rayon for atleast 4x speedup
