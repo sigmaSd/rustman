@@ -6,18 +6,16 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 fn main() {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    let s = match std::env::args().nth(1) {
-        Some(s) => s,
-        None => {
-            stdout
-                .set_color(ColorSpec::new().set_fg(Some(Color::Blue)))
-                .unwrap();
-            writeln!(&mut stdout, "No pacakge specified!").unwrap();
-            return;
-        }
-    };
+    let s: Vec<String> = std::env::args().skip(1).collect();
 
-    let hit = Arc::new(Mutex::new(vec![]));
+    if s.is_empty() {
+        stdout
+            .set_color(ColorSpec::new().set_fg(Some(Color::Blue)))
+            .unwrap();
+        writeln!(&mut stdout, "No package specified!").unwrap();
+        return;
+    }
+
     let res = search(&s)
         .unwrap()
         .lines()
@@ -32,6 +30,7 @@ fn main() {
         return;
     }
 
+    let hit = Arc::new(Mutex::new(vec![]));
     let progress = Arc::new(Mutex::new(Progress::new(res.len())));
 
     let hit_c = hit.clone();
@@ -76,9 +75,10 @@ fn main() {
 }
 
 #[cfg(not(test))]
-fn search(s: &str) -> io::Result<String> {
+fn search(s: &[String]) -> io::Result<String> {
     let out = std::process::Command::new("cargo")
-        .args(&["search", "--limit", "100", s])
+        .args(&["search", "--limit", "100"])
+        .args(s)
         .output()?
         .stdout;
     Ok(String::from_utf8(out).unwrap())

@@ -1,3 +1,7 @@
+**0.1.8**
+
+- Handle multi-item input
+
 **0.1.7**
 
 - Make description optional (fixes panic)
