@@ -92,46 +92,6 @@ fn run() -> Result<(), Errors> {
     main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap())
 }
 
-#[cfg(not(test))]
-fn search(s: &[String]) -> io::Result<String> {
-    let out = std::process::Command::new("cargo")
-        .args(&["search", "--limit", "100"])
-        .args(s)
-        .output()?
-        .stdout;
-    Ok(String::from_utf8(out).unwrap())
-}
-#[cfg(test)]
-fn search(_s: &str) -> io::Result<String> {
-    Ok("irust = \"0.6.1\" ".to_string())
-}
-
-fn parse_version_desc(s: &str) -> (String, String) {
-    let mut s = s.split('#');
-    let v = s.next().unwrap();
-    // description is optional
-    let d = s.next().unwrap_or("");
-    let mut v = v.trim()[1..].to_string();
-    v.pop();
-    let d = d.trim().to_string();
-
-    (v, d)
-}
-
-#[cfg(not(test))]
-fn is_bin(n: &str, v: &str) -> bool {
-    let doc = format!("https://docs.rs/crate/{}/{}", n, v);
-    let mut writer = Vec::new();
-    http_req::request::get(doc, &mut writer).unwrap();
-
-    let writer = String::from_utf8(writer).unwrap();
-    writer.contains("is not a library")
-}
-#[cfg(test)]
-fn is_bin(_n: &str, _v: &str) -> bool {
-    true
-}
-
 fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let installed = look_for_installed(&r);
@@ -179,13 +139,16 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
-    let index = num.saturating_sub(
-        input
-            .trim_end()
-            .parse::<usize>()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "error while parsing input"))?,
-    );
-    let reqeusted = r.get(index);
+    let input = input
+        .trim_end()
+        .parse::<usize>()
+        .map_err(|_| Errors::Custom("error while parsing input"))?;
+
+    if num < input {
+        return Err(Errors::Custom("Input is incorrect"));
+    }
+
+    let reqeusted = r.get(num - input);
 
     if let Some(req) = reqeusted {
         install(&req.0);
@@ -194,6 +157,46 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     }
 
     Ok(())
+}
+
+#[cfg(not(test))]
+fn search(s: &[String]) -> io::Result<String> {
+    let out = std::process::Command::new("cargo")
+        .args(&["search", "--limit", "100"])
+        .args(s)
+        .output()?
+        .stdout;
+    Ok(String::from_utf8(out).unwrap())
+}
+#[cfg(test)]
+fn search(_s: &str) -> io::Result<String> {
+    Ok("irust = \"0.6.1\" ".to_string())
+}
+
+fn parse_version_desc(s: &str) -> (String, String) {
+    let mut s = s.split('#');
+    let v = s.next().unwrap();
+    // description is optional
+    let d = s.next().unwrap_or("");
+    let mut v = v.trim()[1..].to_string();
+    v.pop();
+    let d = d.trim().to_string();
+
+    (v, d)
+}
+
+#[cfg(not(test))]
+fn is_bin(n: &str, v: &str) -> bool {
+    let doc = format!("https://docs.rs/crate/{}/{}", n, v);
+    let mut writer = Vec::new();
+    http_req::request::get(doc, &mut writer).unwrap();
+
+    let writer = String::from_utf8(writer).unwrap();
+    writer.contains("is not a library")
+}
+#[cfg(test)]
+fn is_bin(_n: &str, _v: &str) -> bool {
+    true
 }
 
 fn install(s: &str) {
@@ -229,9 +232,12 @@ fn look_for_installed(r: &[(String, String, String)]) -> Vec<String> {
         .collect()
 }
 
-#[test]
-fn t() {
-    main();
+fn remove_extention(s: String) -> String {
+    if s.contains('.') {
+        s.rsplit('.').nth(1).unwrap().to_owned()
+    } else {
+        s
+    }
 }
 
 struct Progress {
@@ -279,10 +285,7 @@ impl Progress {
     }
 }
 
-fn remove_extention(s: String) -> String {
-    if s.contains('.') {
-        s.rsplit('.').nth(1).unwrap().to_owned()
-    } else {
-        s
-    }
+#[test]
+fn t() {
+    main();
 }
