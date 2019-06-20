@@ -1,3 +1,8 @@
+**0.1.9**
+
+- Better handling of errors
+- Fix a bug in handling input
+
 **0.1.8**
 
 - Handle multi-item input
