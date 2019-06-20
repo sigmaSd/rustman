@@ -4,30 +4,56 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
+enum Errors {
+    IoError(io::Error),
+    Custom(&'static str),
+}
+
+impl From<io::Error> for Errors {
+    fn from(e: io::Error) -> Errors {
+        Errors::IoError(e)
+    }
+}
+
+impl std::fmt::Display for Errors {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let error = match self {
+            Errors::IoError(e) => e.to_string(),
+            Errors::Custom(e) => e.to_string(),
+        };
+
+        write!(f, "Something happened! {}\n Rustman Out", error)
+    }
+}
+
 fn main() {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    let s: Vec<String> = std::env::args().skip(1).collect();
 
-    if s.is_empty() {
-        stdout
-            .set_color(ColorSpec::new().set_fg(Some(Color::Blue)))
-            .unwrap();
-        writeln!(&mut stdout, "No package specified!").unwrap();
-        return;
+    match run() {
+        Ok(_) => (),
+        Err(e) => {
+            writeln!(&mut stdout, "{}", e).unwrap();
+            stdout.reset().unwrap();
+            stdout.flush().unwrap();
+        }
+    }
+}
+
+fn run() -> Result<(), Errors> {
+    let packages: Vec<String> = std::env::args().skip(1).collect();
+
+    if packages.is_empty() {
+        return Err(Errors::Custom("No package specified!"));
     }
 
-    let res = search(&s)
+    let res = search(&packages)
         .unwrap()
         .lines()
         .map(ToOwned::to_owned)
         .collect::<Vec<String>>();
 
     if res.is_empty() {
-        stdout
-            .set_color(ColorSpec::new().set_fg(Some(Color::Blue)))
-            .unwrap();
-        writeln!(&mut stdout, "No matches found!").unwrap();
-        return;
+        return Err(Errors::Custom("No matches found!"));
     }
 
     let hit = Arc::new(Mutex::new(vec![]));
@@ -63,15 +89,7 @@ fn main() {
     //new line
     println!();
 
-    match main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap()) {
-        Ok(_) => (),
-        Err(e) => {
-            stdout
-                .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
-                .unwrap();
-            writeln!(&mut stdout, "Something happened! {}\n Rustman Out", e).unwrap();
-        }
-    };
+    main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap())
 }
 
 #[cfg(not(test))]
@@ -114,7 +132,7 @@ fn is_bin(_n: &str, _v: &str) -> bool {
     true
 }
 
-fn main_loop(r: Vec<(String, String, String)>) -> io::Result<()> {
+fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let installed = look_for_installed(&r);
     let num = r.len();
@@ -172,10 +190,7 @@ fn main_loop(r: Vec<(String, String, String)>) -> io::Result<()> {
     if let Some(req) = reqeusted {
         install(&req.0);
     } else {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "0 is not a valid input",
-        ));
+        return Err(Errors::Custom("0 is not a valid input"));
     }
 
     Ok(())
