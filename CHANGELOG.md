@@ -1,3 +1,6 @@
+**0.2.0**
+- add update-all behaviour, and make it the default when calling `rustman` with no args
+
 **0.1.9**
 
 - Better handling of errors

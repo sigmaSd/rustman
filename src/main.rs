@@ -4,8 +4,21 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
+type Name = String;
+type Version = String;
+type OnlineVersion = String;
+type Description = String;
+
+enum Action {
+    FullUpdate,
+    GetFromGit(String),
+    GetFromName(Vec<String>),
+}
+
+#[derive(Debug)]
 enum Errors {
     IoError(io::Error),
+    Utf8Error(std::string::FromUtf8Error),
     Custom(&'static str),
 }
 
@@ -15,10 +28,17 @@ impl From<io::Error> for Errors {
     }
 }
 
+impl From<std::string::FromUtf8Error> for Errors {
+    fn from(e: std::string::FromUtf8Error) -> Errors {
+        Errors::Utf8Error(e)
+    }
+}
+
 impl std::fmt::Display for Errors {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let error = match self {
             Errors::IoError(e) => e.to_string(),
+            Errors::Utf8Error(e) => e.to_string(),
             Errors::Custom(e) => e.to_string(),
         };
 
@@ -29,51 +49,50 @@ impl std::fmt::Display for Errors {
 fn main() {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
-    match run() {
-        Ok(_) => (),
-        Err(e) => {
-            writeln!(&mut stdout, "{}", e).unwrap();
-            stdout.reset().unwrap();
-            stdout.flush().unwrap();
-        }
+    match parse_args() {
+        Action::GetFromName(packages) => match get_from_name(packages) {
+            Ok(_) => (),
+            Err(e) => {
+                writeln!(&mut stdout, "{}", e).unwrap();
+                stdout.reset().unwrap();
+                stdout.flush().unwrap();
+            }
+        },
+        Action::GetFromGit(link) => get_from_link(&link),
+        Action::FullUpdate => full_update().unwrap_or_default(),
     }
 }
 
-fn run() -> Result<(), Errors> {
-    let packages: Vec<String> = std::env::args().skip(1).collect();
-
-    if packages.is_empty() {
-        return Err(Errors::Custom("No package specified!"));
+fn parse_args() -> Action {
+    let envs: Vec<String> = std::env::args().skip(1).collect();
+    if envs.is_empty() {
+        return Action::FullUpdate;
     }
+    if envs[0].starts_with("https") {
+        Action::GetFromGit(envs[0].clone())
+    } else {
+        Action::GetFromName(envs)
+    }
+}
 
-    let res = search(&packages)
-        .unwrap()
-        .lines()
-        .map(ToOwned::to_owned)
-        .collect::<Vec<String>>();
+fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
+    let raw_hits = search(&packages)?;
 
-    if res.is_empty() {
+    if raw_hits.is_empty() {
         return Err(Errors::Custom("No matches found!"));
     }
 
     let hit = Arc::new(Mutex::new(vec![]));
-    let progress = Arc::new(Mutex::new(Progress::new(res.len())));
+    let progress = Arc::new(Mutex::new(Progress::new(raw_hits.len())));
 
     let hit_c = hit.clone();
     let mut threads = vec![];
-    for line in res {
+    for (name, version, description) in raw_hits {
         let hit_cc = hit_c.clone();
         let progress_c = progress.clone();
         threads.push(std::thread::spawn(move || {
-            if line.starts_with("...") {
-                return;
-            }
-            let mut line = line.split('=');
-            let n = line.next().unwrap().trim().to_string();
-            let (v, d) = parse_version_desc(line.next().unwrap());
-
-            if is_bin(&n, &v) {
-                hit_cc.lock().unwrap().push((n, v, d));
+            if is_bin(&name, &version) {
+                hit_cc.lock().unwrap().push((name, version, description));
                 progress_c.lock().unwrap().advance();
                 progress_c.lock().unwrap().print();
             }
@@ -92,9 +111,148 @@ fn run() -> Result<(), Errors> {
     main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap())
 }
 
+fn get_from_link(link: &str) {
+    let tmp_dir = std::env::temp_dir()
+        .join("rustman")
+        .join(link.split('/').last().unwrap());
+    let _ = fs::create_dir_all(&tmp_dir);
+
+    Command::new("git")
+        .current_dir(&tmp_dir)
+        .arg("clone")
+        .arg(link)
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+}
+
+fn full_update() -> Result<(), Errors> {
+    let installed = look_for_installed();
+
+    let online_versions = Arc::new(Mutex::new(vec![]));
+    let progress = Arc::new(Mutex::new(Progress::new(installed.len())));
+
+    let online_versions_c = online_versions.clone();
+    let mut threads = vec![];
+    for p in installed.clone() {
+        let online_versions_cc = online_versions_c.clone();
+        let progress_c = progress.clone();
+
+        threads.push(std::thread::spawn(move || {
+            let p = search_one_pkg(&p.0);
+            if let Ok(Some(p)) = p {
+                online_versions_cc.lock().unwrap().push(p);
+            }
+            progress_c.lock().unwrap().advance();
+            progress_c.lock().unwrap().print();
+        }));
+    }
+    for t in threads {
+        t.join().unwrap();
+    }
+
+    // keep only one strong refrence to online_versions so we can unwrap safely
+    drop(online_versions_c);
+
+    //new line
+    println!();
+
+    // clear color
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
+    let _ = stdout.reset();
+    let _ = stdout.flush();
+
+    let online_versions = Arc::try_unwrap(online_versions)
+        .unwrap()
+        .into_inner()
+        .unwrap();
+
+    let needs_update_pkgs = diff(&installed, &online_versions);
+
+    let widths: (usize, usize) = needs_update_pkgs
+        .iter()
+        .map(|p| (p.0.len(), p.1.len()))
+        .max()
+        .unwrap_or_default();
+
+    let offset1 = widths.0.saturating_sub(4);
+    let offset2 = widths.1.saturating_sub(9);
+    let installed_col_offset = offset1 + 4;
+    let available_col_offset = installed_col_offset + offset2;
+
+    println!(
+        "Name{}\tInstalled{}\tAvailable",
+        std::iter::repeat(" ").take(offset1).collect::<String>(),
+        std::iter::repeat(" ").take(offset2).collect::<String>(),
+    );
+    for package in &needs_update_pkgs {
+        let offsets = (
+            std::iter::repeat(" ")
+                .take(installed_col_offset.saturating_sub(package.0.len()))
+                .collect::<String>(),
+            std::iter::repeat(" ")
+                .take(available_col_offset.saturating_sub(package.1.len()))
+                .collect::<String>(),
+        );
+        println!(
+            "{}{}\t{}{}\t{}",
+            package.0, offsets.0, package.1, offsets.1, package.2
+        );
+    }
+
+    let update_all = |v: &Vec<(&Name, &Version, &Description)>| {
+        v.iter().for_each(|p| install(p.0));
+    };
+
+    println!(":: Proceed with installation? [Y/n]");
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    if answer.trim().is_empty() || answer.trim().to_lowercase() == "y" {
+        update_all(&needs_update_pkgs);
+    }
+
+    Ok(())
+}
+
+fn diff<'a>(
+    installed: &'a [(Name, Version)],
+    online_versions: &'a [(Name, Version, Description)],
+) -> Vec<(&'a Name, &'a Version, &'a OnlineVersion)> {
+    let mut res = vec![];
+    for ins_pkg in installed.iter() {
+        if let Some(online_pkg) = online_versions
+            .iter()
+            .find(|(n, v, _)| n == &ins_pkg.0 && v != &ins_pkg.1)
+        {
+            res.push((&ins_pkg.0, &ins_pkg.1, &online_pkg.1));
+        }
+    }
+    res
+    // installed.sort();
+
+    // online_versions.sort();
+
+    // let mut idx = 0;
+    // while idx < installed.len() {
+    //     if installed[idx] != online_versions[idx] {
+    //         installed.remove(idx);
+    //     }
+    //     idx +=1;
+    // }
+
+    // installed.iter().zip(online_versions.iter()).filter_map(|(ins, online)|{
+    //     if ins.1 != online.1 {
+    //         Some((&ins.0, &ins.1, &online.1))
+    //     } else {
+    //         None
+    //     }
+    // })
+}
+
 fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    let installed = look_for_installed(&r);
+    let installed = look_for_installed();
     let num = r.len();
     if num == 0 {
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
@@ -103,10 +261,11 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     }
 
     for (i, (n, v, d)) in r.iter().enumerate() {
-        let suffix = if installed.contains(&n) {
-            "(Installed)"
+        let current_bin = installed.iter().find(|(name, _version)| name == n);
+        let suffix = if let Some(hit) = current_bin {
+            format!("Installed [v{}]", hit.1)
         } else {
-            ""
+            "".into()
         };
 
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
@@ -159,21 +318,49 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     Ok(())
 }
 
+fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>, Errors> {
+    let hit = search(vec![s.to_owned()].as_slice())?;
+    let hit = hit.get(0);
+    if let Some(h) = hit.as_ref() {
+        if h.0 == s {
+            return Ok(hit.cloned());
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(not(test))]
-fn search(s: &[String]) -> io::Result<String> {
+fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
     let out = std::process::Command::new("cargo")
         .args(&["search", "--limit", "100"])
         .args(s)
         .output()?
         .stdout;
-    Ok(String::from_utf8(out).unwrap())
+
+    let mut results = vec![];
+
+    for line in String::from_utf8(out)?.lines() {
+        if line.starts_with("...") {
+            continue;
+        }
+        let mut line = line.split('=');
+        let name = line.next().unwrap().trim().to_string();
+        let (version, description) = parse_version_desc(line.next().unwrap());
+        results.push((name, version, description));
+    }
+
+    Ok(results)
 }
 #[cfg(test)]
-fn search(_s: &str) -> io::Result<String> {
-    Ok("irust = \"0.6.1\" ".to_string())
+fn search(_s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
+    Ok(vec![(
+        "irust".to_string(),
+        "0.6.1".to_string(),
+        "".to_string(),
+    )])
 }
 
-fn parse_version_desc(s: &str) -> (String, String) {
+fn parse_version_desc(s: &str) -> (Name, Version) {
     let mut s = s.split('#');
     let v = s.next().unwrap();
     // description is optional
@@ -208,35 +395,30 @@ fn install(s: &str) {
         .unwrap();
 }
 
-fn look_for_installed(r: &[(String, String, String)]) -> Vec<String> {
-    let r_names: Vec<&String> = r.iter().map(|(n, _v, _d)| n).collect();
+fn look_for_installed() -> Vec<(Name, Version)> {
+    let installed_bins_toml = fs::read_to_string(
+        dirs::home_dir()
+            .unwrap()
+            .join(".cargo")
+            .join(".crates.toml"),
+    )
+    .unwrap();
 
-    fs::read_dir(dirs::home_dir().unwrap().join(".cargo/bin"))
-        .unwrap()
-        .filter_map(|e| {
-            let file_name = e
-                .as_ref()
-                .unwrap()
-                .file_name()
-                .to_str()
-                .unwrap()
-                .to_string();
-            let file_name = remove_extention(file_name);
-
-            if r_names.contains(&&file_name) {
-                Some(file_name)
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-fn remove_extention(s: String) -> String {
-    if s.contains('.') {
-        s.rsplit('.').nth(1).unwrap().to_owned()
+    let table: toml::map::Map<String, toml::Value> =
+        toml::from_str(&installed_bins_toml.trim()).unwrap();
+    if let toml::Value::Table(table) = &table["v1"] {
+        table
+            .keys()
+            .map(|k| {
+                let mut key = k.split_whitespace();
+                (
+                    key.next().unwrap().to_string(),
+                    key.next().unwrap().to_string(),
+                )
+            })
+            .collect()
     } else {
-        s
+        vec![]
     }
 }
 
