@@ -5,11 +5,11 @@ Cross platfrom package manager
 Search and install rust binaires
 
 ## Usage
-**Update all local binary packages**
+*Update all local binary packages*
 
 `rustman`
 
-**Search and install interactively a specific pacakge**
+*Search and install interactively a specific pacakge*
 
 `rustman $package`
 
