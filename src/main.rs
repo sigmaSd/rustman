@@ -6,7 +6,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 mod colors;
 use colors::Colors;
 mod unchained;
-use unchained::{Sugar, Unchained};
+use unchained::{Finisher, Unchained};
 
 type Name = String;
 type Version = String;

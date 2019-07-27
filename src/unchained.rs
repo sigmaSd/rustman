@@ -8,7 +8,7 @@ where
     where
         F: FnMut(Self::Item) + Send + Sync + 'static,
     {
-        UnchainedForEach { iter: self, f }
+        UnchainedForEach::new(self, f)
     }
 }
 
@@ -18,8 +18,9 @@ pub struct UnchainedForEach<I: Iterator, F: FnMut(I::Item) + Send + Sync + 'stat
     iter: I,
     f: F,
 }
-impl<I: Iterator<Item = F>, F: FnMut(I::Item) + Send + Sync + 'static> UnchainedForEach<I, F> {
-    fn _new(iter: I, f: F) -> Self {
+
+impl<I: Iterator, F: FnMut(I::Item) + Send + Sync + 'static> UnchainedForEach<I, F> {
+    fn new(iter: I, f: F) -> Self {
         Self { iter, f }
     }
 }
@@ -42,10 +43,10 @@ where
         }))
     }
 }
-pub trait Sugar {
+pub trait Finisher {
     fn join(self);
 }
-impl<T> Sugar for T
+impl<T> Finisher for T
 where
     T: Iterator<Item = thread::JoinHandle<()>>,
 {
