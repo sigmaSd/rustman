@@ -3,6 +3,8 @@ use std::io::{self, Write};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+mod colors;
+use colors::Colors;
 
 type Name = String;
 type Version = String;
@@ -181,31 +183,36 @@ fn full_update() -> Result<(), Errors> {
     let installed_col_offset = offset1 + 4;
     let available_col_offset = installed_col_offset + offset2;
 
-    println!(
+    format!(
         "Name{}\tInstalled{}\tAvailable",
         std::iter::repeat(" ").take(offset1).collect::<String>(),
         std::iter::repeat(" ").take(offset2).collect::<String>(),
-    );
+    )
+    .color_print(Color::Cyan);
+    println!();
+
     for package in &needs_update_pkgs {
         let offsets = (
             std::iter::repeat(" ")
                 .take(installed_col_offset.saturating_sub(package.0.len()))
                 .collect::<String>(),
             std::iter::repeat(" ")
-                .take(available_col_offset.saturating_sub(package.1.len()))
+                .take(available_col_offset)
                 .collect::<String>(),
         );
-        println!(
-            "{}{}\t{}{}\t{}",
-            package.0, offsets.0, package.1, offsets.1, package.2
-        );
+        package.0.color_print(Color::Blue);
+        format!("{}\t", offsets.0).color_print(Color::White);
+        package.1.color_print(Color::Green);
+        format!("{}\t", offsets.1).color_print(Color::White);
+        package.2.color_print(Color::Yellow);
+        println!();
     }
 
     let update_all = |v: &Vec<(&Name, &Version, &Description)>| {
         v.iter().for_each(|p| install(p.0));
     };
 
-    println!(":: Proceed with installation? [Y/n]");
+    ":: Proceed with installation? [Y/n]".color_print(Color::Yellow);
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
     if answer.trim().is_empty() || answer.trim().to_lowercase() == "y" {
@@ -229,25 +236,6 @@ fn diff<'a>(
         }
     }
     res
-    // installed.sort();
-
-    // online_versions.sort();
-
-    // let mut idx = 0;
-    // while idx < installed.len() {
-    //     if installed[idx] != online_versions[idx] {
-    //         installed.remove(idx);
-    //     }
-    //     idx +=1;
-    // }
-
-    // installed.iter().zip(online_versions.iter()).filter_map(|(ins, online)|{
-    //     if ins.1 != online.1 {
-    //         Some((&ins.0, &ins.1, &online.1))
-    //     } else {
-    //         None
-    //     }
-    // })
 }
 
 fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
@@ -406,6 +394,11 @@ fn look_for_installed() -> Vec<(Name, Version)> {
 
     let table: toml::map::Map<String, toml::Value> =
         toml::from_str(&installed_bins_toml.trim()).unwrap();
+
+    if table.is_empty() {
+        return vec![];
+    }
+
     if let toml::Value::Table(table) = &table["v1"] {
         table
             .keys()
@@ -437,7 +430,7 @@ impl Progress {
             .unwrap();
 
         let width = max / 2;
-        let step = max / width;
+        let step = max.checked_div(width).unwrap_or(width);
         let current = 0;
 
         Self {
