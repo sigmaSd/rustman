@@ -1,3 +1,7 @@
+**0.2.1**
+- Add colors to update-all
+- Refactor code
+
 **0.2.0**
 - add update-all behaviour, and make it the default when calling `rustman` with no args
 
