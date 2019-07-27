@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 mod colors;
 use colors::Colors;
+mod unchained;
+use unchained::{Sugar, Unchained};
 
 type Name = String;
 type Version = String;
@@ -88,24 +90,19 @@ fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
     let progress = Arc::new(Mutex::new(Progress::new(raw_hits.len())));
 
     let hit_c = hit.clone();
-    let mut threads = vec![];
-    for (name, version, description) in raw_hits {
-        let hit_cc = hit_c.clone();
-        let progress_c = progress.clone();
-        threads.push(std::thread::spawn(move || {
+
+    raw_hits
+        .into_iter()
+        .unchained_for_each(move |(name, version, description)| {
+            let hit_cc = hit_c.clone();
+            let progress_c = progress.clone();
             if is_bin(&name, &version) {
                 hit_cc.lock().unwrap().push((name, version, description));
                 progress_c.lock().unwrap().advance();
                 progress_c.lock().unwrap().print();
             }
-        }));
-    }
-    for t in threads {
-        t.join().unwrap();
-    }
-
-    // keep only one strong refrence to hit so we can unwrap safely
-    drop(hit_c);
+        })
+        .join();
 
     //new line
     println!();
@@ -136,26 +133,22 @@ fn full_update() -> Result<(), Errors> {
     let progress = Arc::new(Mutex::new(Progress::new(installed.len())));
 
     let online_versions_c = online_versions.clone();
-    let mut threads = vec![];
-    for p in installed.clone() {
-        let online_versions_cc = online_versions_c.clone();
-        let progress_c = progress.clone();
 
-        threads.push(std::thread::spawn(move || {
+    installed
+        .clone()
+        .into_iter()
+        .unchained_for_each(move |p| {
+            let online_versions_cc = online_versions_c.clone();
+            let progress_c = progress.clone();
+
             let p = search_one_pkg(&p.0);
             if let Ok(Some(p)) = p {
                 online_versions_cc.lock().unwrap().push(p);
             }
             progress_c.lock().unwrap().advance();
             progress_c.lock().unwrap().print();
-        }));
-    }
-    for t in threads {
-        t.join().unwrap();
-    }
-
-    // keep only one strong refrence to online_versions so we can unwrap safely
-    drop(online_versions_c);
+        })
+        .join();
 
     //new line
     println!();
