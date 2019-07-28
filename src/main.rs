@@ -5,8 +5,7 @@ use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 mod colors;
 use colors::Colors;
-mod unchained;
-use unchained::{Finisher, Unchained};
+use unchained::Unchained;
 
 type Name = String;
 type Version = String;
@@ -101,8 +100,7 @@ fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
                 progress_c.lock().unwrap().advance();
                 progress_c.lock().unwrap().print();
             }
-        })
-        .join();
+        });
 
     //new line
     println!();
@@ -147,8 +145,7 @@ fn full_update() -> Result<(), Errors> {
             }
             progress_c.lock().unwrap().advance();
             progress_c.lock().unwrap().print();
-        })
-        .join();
+        });
 
     //new line
     println!();
