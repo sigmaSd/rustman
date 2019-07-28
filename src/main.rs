@@ -162,6 +162,12 @@ fn full_update() -> Result<(), Errors> {
 
     let needs_update_pkgs = diff(&installed, &online_versions);
 
+    if needs_update_pkgs.is_empty() {
+            "Everything is uptodate!".color_print(Color::Blue);
+            println!();
+            return Ok(())
+    }
+
     let widths: (usize, usize) = needs_update_pkgs
         .iter()
         .map(|p| (p.0.len(), p.1.len()))
