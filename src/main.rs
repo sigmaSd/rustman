@@ -14,8 +14,11 @@ type Description = String;
 
 enum Action {
     FullUpdate,
-    GetFromGit(String),
-    GetFromName(Vec<String>),
+    _GetFromGit(String),
+    SearchByName(Vec<String>),
+    InstallPackage(Vec<String>),
+    RemovePackage(Vec<String>),
+    ShowInstalled,
 }
 
 #[derive(Debug)]
@@ -53,7 +56,7 @@ fn main() {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
     match parse_args() {
-        Action::GetFromName(packages) => match get_from_name(packages) {
+        Action::SearchByName(packages) => match get_from_name(packages) {
             Ok(_) => (),
             Err(e) => {
                 writeln!(&mut stdout, "{}", e).unwrap();
@@ -61,21 +64,48 @@ fn main() {
                 stdout.flush().unwrap();
             }
         },
-        Action::GetFromGit(link) => get_from_link(&link),
+        Action::_GetFromGit(link) => get_from_link(&link),
         Action::FullUpdate => full_update().unwrap_or_default(),
+        Action::InstallPackage(packages) => install_packages(packages),
+        Action::RemovePackage(packages) => remove_packages(packages),
+        Action::ShowInstalled => show_installed(),
     }
 }
 
 fn parse_args() -> Action {
     let envs: Vec<String> = std::env::args().skip(1).collect();
-    if envs.is_empty() {
-        return Action::FullUpdate;
+
+    match envs.get(0).map(|s| s.as_str()) {
+        Some("-S") => Action::InstallPackage(envs[1..].to_vec()),
+        Some("-R") => Action::RemovePackage(envs[1..].to_vec()),
+        Some("--installed") => Action::ShowInstalled,
+        Some(_) => Action::SearchByName(envs),
+        None => Action::FullUpdate,
     }
-    if envs[0].starts_with("https") {
-        Action::GetFromGit(envs[0].clone())
-    } else {
-        Action::GetFromName(envs)
-    }
+}
+
+fn show_installed() {
+    let installed = look_for_installed();
+    let max_width = installed.iter().map(|p| p.0.len()).max().unwrap();
+
+    installed.into_iter().for_each(|p| {
+        let offset: String = std::iter::repeat(" ").take(max_width - p.0.len()).collect();
+
+        format!("{}{}\t", p.0, offset).color_print(Color::Yellow);
+        format!("{}\n", p.1).color_print(Color::Red);
+    });
+}
+
+fn install_packages(packages: Vec<String>) {
+    format!("Installing pacakges: {:?}\n", &packages).color_print(Color::Blue);
+    packages.iter().for_each(|p| install(p));
+    "Done!".color_print(Color::Blue);
+}
+
+fn remove_packages(packages: Vec<String>) {
+    format!("Removing pacakges: {:?}\n", &packages).color_print(Color::Blue);
+    packages.iter().for_each(|p| remove(p));
+    "Done!".color_print(Color::Blue);
 }
 
 fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
@@ -132,20 +162,17 @@ fn full_update() -> Result<(), Errors> {
 
     let online_versions_c = online_versions.clone();
 
-    installed
-        .clone()
-        .into_iter()
-        .unchained_for_each(move |p| {
-            let online_versions_cc = online_versions_c.clone();
-            let progress_c = progress.clone();
+    installed.clone().into_iter().unchained_for_each(move |p| {
+        let online_versions_cc = online_versions_c.clone();
+        let progress_c = progress.clone();
 
-            let p = search_one_pkg(&p.0);
-            if let Ok(Some(p)) = p {
-                online_versions_cc.lock().unwrap().push(p);
-            }
-            progress_c.lock().unwrap().advance();
-            progress_c.lock().unwrap().print();
-        });
+        let p = search_one_pkg(&p.0);
+        if let Ok(Some(p)) = p {
+            online_versions_cc.lock().unwrap().push(p);
+        }
+        progress_c.lock().unwrap().advance();
+        progress_c.lock().unwrap().print();
+    });
 
     //new line
     println!();
@@ -163,9 +190,9 @@ fn full_update() -> Result<(), Errors> {
     let needs_update_pkgs = diff(&installed, &online_versions);
 
     if needs_update_pkgs.is_empty() {
-            "Everything is uptodate!".color_print(Color::Blue);
-            println!();
-            return Ok(())
+        "Everything is uptodate!".color_print(Color::Blue);
+        println!();
+        return Ok(());
     }
 
     let widths: (usize, usize) = needs_update_pkgs
@@ -373,6 +400,16 @@ fn is_bin(_n: &str, _v: &str) -> bool {
 fn install(s: &str) {
     Command::new("cargo")
         .args(&["install", "--force", s])
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+}
+
+fn remove(s: &str) {
+    Command::new("cargo")
+        .arg("uninstall")
+        .arg(s)
         .spawn()
         .unwrap()
         .wait()
