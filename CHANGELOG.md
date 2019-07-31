@@ -1,3 +1,6 @@
+**0.2.3**
+- Add `-S` `-R` `--installed args`
+
 **0.2.2**
 - Use unchained crate
 - Handle the case where all pkgs are uptodate
