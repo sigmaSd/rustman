@@ -1,6 +1,9 @@
+**0.2.3**
+- Add `-S` `-R` `--installed args`
+
 **0.2.2**
 - Use unchained crate
-- Handle the case when all pkgs are uptodate
+- Handle the case where all pkgs are uptodate
 
 **0.2.1**
 - Add colors to update-all
