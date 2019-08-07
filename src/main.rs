@@ -3,15 +3,21 @@ use std::io::{self, Write};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+use once_cell::sync::Lazy;
 mod colors;
 use colors::Colors;
 mod database;
+use database::Database;
 use unchained::Unchained;
+mod progress;
+use progress::Progress;
 
 type Name = String;
 type Version = String;
 type OnlineVersion = String;
 type Description = String;
+
+pub static DATABASE: Lazy<Database> = Lazy::new(Database::new);
 
 enum Action {
     FullUpdate,
@@ -133,20 +139,17 @@ fn full_update() -> Result<(), Errors> {
 
     let online_versions_c = online_versions.clone();
 
-    installed
-        .clone()
-        .into_iter()
-        .unchained_for_each(move |p| {
-            let online_versions_cc = online_versions_c.clone();
-            let progress_c = progress.clone();
+    installed.clone().into_iter().unchained_for_each(move |p| {
+        let online_versions_cc = online_versions_c.clone();
+        let progress_c = progress.clone();
 
-            let p = search_one_pkg(&p.0);
-            if let Ok(Some(p)) = p {
-                online_versions_cc.lock().unwrap().push(p);
-            }
-            progress_c.lock().unwrap().advance();
-            progress_c.lock().unwrap().print();
-        });
+        let p = search_one_pkg(&p.0);
+        if let Ok(Some(p)) = p {
+            online_versions_cc.lock().unwrap().push(p);
+        }
+        progress_c.lock().unwrap().advance();
+        progress_c.lock().unwrap().print();
+    });
 
     //new line
     println!();
@@ -164,9 +167,9 @@ fn full_update() -> Result<(), Errors> {
     let needs_update_pkgs = diff(&installed, &online_versions);
 
     if needs_update_pkgs.is_empty() {
-            "Everything is uptodate!".color_print(Color::Blue);
-            println!();
-            return Ok(())
+        "Everything is uptodate!".color_print(Color::Blue);
+        println!();
+        return Ok(());
     }
 
     let widths: (usize, usize) = needs_update_pkgs
@@ -316,23 +319,9 @@ fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>, Error
 
 #[cfg(not(test))]
 fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
-    let out = std::process::Command::new("cargo")
-        .args(&["search", "--limit", "100"])
-        .args(s)
-        .output()?
-        .stdout;
-
-    let mut results = vec![];
-
-    for line in String::from_utf8(out)?.lines() {
-        if line.starts_with("...") {
-            continue;
-        }
-        let mut line = line.split('=');
-        let name = line.next().unwrap().trim().to_string();
-        let (version, description) = parse_version_desc(line.next().unwrap());
-        results.push((name, version, description));
-    }
+    let results: Vec<Vec<crate::database::Crate>> = s.iter().map(|n| DATABASE.search(n)).collect();
+    let results: Vec<crate::database::Crate> = results.into_iter().fold(Vec::new(), |mut acc, n|{acc.extend(n); acc});
+    let results = results.into_iter().map(|c|(c.name, c.version, c.description)).collect();
 
     Ok(results)
 }
@@ -412,50 +401,6 @@ fn look_for_installed() -> Vec<(Name, Version)> {
     }
 }
 
-struct Progress {
-    width: usize,
-    current: usize,
-    step: usize,
-    printer: StandardStream,
-}
-
-impl Progress {
-    fn new(max: usize) -> Self {
-        let mut printer = StandardStream::stdout(ColorChoice::Always);
-        printer
-            .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
-            .unwrap();
-
-        let width = max / 2;
-        let step = max.checked_div(width).unwrap_or(width);
-        let current = 0;
-
-        Self {
-            width,
-            step,
-            current,
-            printer,
-        }
-    }
-
-    fn advance(&mut self) {
-        self.current += 1;
-    }
-
-    fn print(&mut self) {
-        let progress = self.current.checked_div(self.step).unwrap_or(0);
-        let remaining = match self.width.checked_sub(progress) {
-            Some(n) => n,
-            None => return,
-        };
-        let progress: String = std::iter::repeat('#').take(progress).collect();
-        let remaining: String = std::iter::repeat(' ').take(remaining).collect();
-
-        write!(&mut self.printer, "\r").unwrap();
-        write!(&mut self.printer, "\t\t[{}{}]", progress, remaining).unwrap();
-        self.printer.flush().unwrap();
-    }
-}
 
 #[test]
 fn t() {
