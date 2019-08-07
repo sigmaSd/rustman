@@ -3,6 +3,7 @@ use crate::progress::Progress;
 use serde::{Deserialize, Serialize};
 use std::sync::{mpsc::channel, Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use unchained::Unchained;
 
 const crates_url_template: &str = "https://crates.io/api/v1/crates?per_page=100&page=";
 
@@ -65,56 +66,44 @@ impl Database {
     }
 
     pub fn update(&mut self) {
-        let mut page_idx = 1;
-        let mut threads = vec![];
-        let progress = Arc::new(Mutex::new(Progress::new(287)));
+        let progress_c = Arc::new(Mutex::new(Progress::new(300)));
+        let crates = self.crates.clone();
 
-        while page_idx < 287 {
-            let crates = self.crates.clone();
-            let progress_c = progress.clone();
+        (0..300).unchained_for_each(move |page_idx| {
+            let mut crates_url = crates_url_template.to_string();
+            crates_url.push_str(&page_idx.to_string());
 
-            threads.push(std::thread::spawn(move || {
-                let mut progress_c = progress_c.lock().unwrap();
-                let mut crates_url = crates_url_template.to_string();
-                crates_url.push_str(&page_idx.to_string());
+            let crates_url: http_req::uri::Uri = crates_url.parse().unwrap();
+            let mut crate_metadata = Vec::new();
 
-                let crates_url: http_req::uri::Uri = crates_url.parse().unwrap();
-                let mut crate_metadata = Vec::new();
+            http_req::request::Request::new(&crates_url)
+                .header("User-Agent", "https://github.com/sigmaSd/rustman")
+                .send(&mut crate_metadata)
+                .unwrap();
 
-                http_req::request::Request::new(&crates_url)
-                    .header("User-Agent", "https://github.com/sigmaSd/rustman")
-                    .send(&mut crate_metadata)
-                    .unwrap();
+            let crates_json = String::from_utf8(crate_metadata).unwrap();
+            let crates_json = json::parse(&crates_json).unwrap();
 
-                let crates_json = String::from_utf8(crate_metadata).unwrap();
-                //dbg!(&crate_metadata);
-                let crates_json = json::parse(&crates_json).unwrap();
+            let crates = crates.clone();
+            (0..100).unchained_for_each(move |i| {
+                let name = crates_json["crates"][i]["name"].to_string();
+                let version = crates_json["crates"][i]["max_version"].to_string();
+                let description = crates_json["crates"][i]["description"].to_string();
 
-                for i in 0..100 {
-                    let name = crates_json["crates"][i]["name"].to_string();
-                    let version = crates_json["crates"][i]["max_version"].to_string();
-                    let description = crates_json["crates"][i]["description"].to_string();
-
-                    //if !crate::is_bin(&name, &version) {
-                    //    continue;
-                    //}
-
-                    crates.lock().unwrap().push(Crate {
-                        name,
-                        version,
-                        description,
-                    });
+                if !crate::is_bin(&name, &version) {
+                    return;
                 }
 
-                progress_c.advance();
-                progress_c.print();
-                //dbg!("hello");
-            }));
-            page_idx += 1;
-        }
+                crates.try_lock().unwrap().push(Crate {
+                    name,
+                    version,
+                    description,
+                });
+            });
 
-        threads.into_iter().for_each(|t| {
-            let _ = t.join();
+            let mut progress_c = progress_c.try_lock().unwrap();
+            progress_c.advance();
+            progress_c.print();
         });
     }
 
