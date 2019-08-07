@@ -45,26 +45,26 @@ impl Database {
             crates: Arc::new(Mutex::new(crates))
         };
 
-        if dbg!(SystemTime::now().duration_since(database_file.metadata().unwrap().modified().unwrap()).unwrap()) > Duration::new(24 * 60 * 3600, 0) {
+        if SystemTime::now().duration_since(database_file.metadata().unwrap().modified().unwrap()).unwrap() > Duration::new(24 * 60 * 3600, 0) {
             database.update();
         }
-
+        database.update();
         database
     }
 
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         let mut page_idx = 1;
-        let (sender, receiver) = channel();
+        //let (sender, receiver) = channel();
         let mut threads = vec![];
-        let progress = Arc::new(Mutex::new(Progress::new(300)));
+        let progress = Arc::new(Mutex::new(Progress::new(287)));
 
-        while page_idx < 300 {
+        while page_idx < 287 {
             let crates = self.crates.clone();
-            let sender = sender.clone();
+        //    let sender = sender.clone();
             let progress_c = progress.clone();
 
-            if page_idx < 300 {
                 threads.push(std::thread::spawn(move || {
+                    let mut progress_c = progress_c.lock().unwrap();
                     let mut crates_url = crates_url_template.to_string();
                     crates_url.push_str(&page_idx.to_string());
 
@@ -88,24 +88,24 @@ impl Database {
                         });
                     }
 
-                    dbg!(&crates_json["meta"]["next_page"]);
+                    //dbg!(&crates_json["meta"]["next_page"]);
 
                     //std::process::exit(0);
-                    if crates_json["meta"]["next_page"].to_string() == "null" {
-                        sender.send(()).unwrap();
-                    }
-                    progress_c.lock().unwrap().advance();
-                    progress_c.lock().unwrap().print();
-                    dbg!(&page_idx);
+                    // if crates_json["meta"]["next_page"].to_string() == "null" {
+                    //     sender.send(()).unwrap();
+                    // }
+                    progress_c.advance();
+                    progress_c.print();
+                    //dbg!(&page_idx);
                 }));
-            }
-            if receiver.try_recv().is_ok() {
-                break;
-            }
+
+            // if receiver.try_recv().is_ok() {
+            //     break;
+            // }
             page_idx += 1;
         }
 
-        threads.into_iter().for_each(|t| t.join().unwrap());
+        threads.into_iter().for_each(|t| {let _ = t.join();});
     }
 
     fn save(&self) {

@@ -26,6 +26,7 @@ enum Action {
     InstallPackage(Vec<String>),
     RemovePackage(Vec<String>),
     ShowInstalled,
+    UpdateDatabse
 }
 
 #[derive(Debug)]
@@ -76,6 +77,7 @@ fn main() {
         Action::InstallPackage(packages) => install_packages(packages),
         Action::RemovePackage(packages) => remove_packages(packages),
         Action::ShowInstalled => show_installed(),
+        Action::UpdateDatabse => ()
     }
 }
 
@@ -85,7 +87,8 @@ fn parse_args() -> Action {
     match envs.get(0).map(|s| s.as_str()) {
         Some("-S") => Action::InstallPackage(envs[1..].to_vec()),
         Some("-R") => Action::RemovePackage(envs[1..].to_vec()),
-        Some("--installed") => Action::ShowInstalled,
+        Some("--show-installed") => Action::ShowInstalled,
+        Some("--update-database") => Action::UpdateDatabse,
         Some(_) => Action::SearchByName(envs),
         None => Action::FullUpdate,
     }

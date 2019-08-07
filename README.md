@@ -23,10 +23,10 @@ Search and install rust binaires
 
 *show installed pacakges*
 
-`rustman --installed`
+`rustman --show-installed`
 
 ## Example
-`rustman repl` 
+`rustman repl`
 
 <img src="./rustman.png" width="70%" height="60%">
 
