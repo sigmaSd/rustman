@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 mod colors;
 use colors::Colors;
+mod database;
 use unchained::Unchained;
 
 type Name = String;
