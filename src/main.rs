@@ -1,9 +1,9 @@
+use once_cell::sync::Lazy;
 use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-use once_cell::sync::Lazy;
 mod colors;
 use colors::Colors;
 mod database;
@@ -26,7 +26,7 @@ enum Action {
     InstallPackage(Vec<String>),
     RemovePackage(Vec<String>),
     ShowInstalled,
-    UpdateDatabse
+    UpdateDatabse,
 }
 
 #[derive(Debug)]
@@ -77,7 +77,7 @@ fn main() {
         Action::InstallPackage(packages) => install_packages(packages),
         Action::RemovePackage(packages) => remove_packages(packages),
         Action::ShowInstalled => show_installed(),
-        Action::UpdateDatabse => ()
+        Action::UpdateDatabse => force_update_database(),
     }
 }
 
@@ -92,6 +92,13 @@ fn parse_args() -> Action {
         Some(_) => Action::SearchByName(envs),
         None => Action::FullUpdate,
     }
+}
+
+fn force_update_database() {
+    let mut database = Database::default();
+    database.update();
+    database.save();
+    "Database updataed!".color_print(Color::Yellow);
 }
 
 fn show_installed() {
@@ -135,11 +142,9 @@ fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
         .unchained_for_each(move |(name, version, description)| {
             let hit_cc = hit_c.clone();
             let progress_c = progress.clone();
-            if is_bin(&name, &version) {
-                hit_cc.lock().unwrap().push((name, version, description));
-                progress_c.lock().unwrap().advance();
-                progress_c.lock().unwrap().print();
-            }
+            hit_cc.lock().unwrap().push((name, version, description));
+            progress_c.lock().unwrap().advance();
+            progress_c.lock().unwrap().print();
         });
 
     //new line
@@ -353,8 +358,15 @@ fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>, Error
 #[cfg(not(test))]
 fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
     let results: Vec<Vec<crate::database::Crate>> = s.iter().map(|n| DATABASE.search(n)).collect();
-    let results: Vec<crate::database::Crate> = results.into_iter().fold(Vec::new(), |mut acc, n|{acc.extend(n); acc});
-    let results = results.into_iter().map(|c|(c.name, c.version, c.description)).collect();
+    let results: Vec<crate::database::Crate> =
+        results.into_iter().fold(Vec::new(), |mut acc, n| {
+            acc.extend(n);
+            acc
+        });
+    let results = results
+        .into_iter()
+        .map(|c| (c.name, c.version, c.description))
+        .collect();
 
     Ok(results)
 }
@@ -443,7 +455,6 @@ fn look_for_installed() -> Vec<(Name, Version)> {
         vec![]
     }
 }
-
 
 #[test]
 fn t() {

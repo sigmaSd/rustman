@@ -1,6 +1,6 @@
-use termcolor::{Color, ColorSpec, ColorChoice, StandardStream};
 use std::io::Write;
 use termcolor::WriteColor;
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream};
 
 pub struct Progress {
     width: usize,
@@ -16,7 +16,7 @@ impl Progress {
             .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
             .unwrap();
 
-        let width = max / 2;
+        let width = std::cmp::min(30, max);
         let step = max.checked_div(width).unwrap_or(width);
         let current = 0;
 
