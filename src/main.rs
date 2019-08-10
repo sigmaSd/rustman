@@ -177,13 +177,11 @@ fn full_update() -> Result<(), Errors> {
 
     //let online_versions_c = online_versions.clone();
 
-    let online_versions: Vec<(Name, Version, Description)> = installed.iter().map(|p|search_one_pkg(&p.0)).filter_map(|p|{
-        if let Ok(p) = p {
-            p
-        } else {
-            None
-        }
-    }).collect();
+    let online_versions: Vec<(Name, Version, Description)> = installed
+        .iter()
+        .map(|p| search_one_pkg(&p.0))
+        .filter_map(|p| if let Ok(p) = p { p } else { None })
+        .collect();
     // unchained_for_each(move |p| {
     //     let online_versions_cc = online_versions_c.clone();
     //     let progress_c = progress.clone();

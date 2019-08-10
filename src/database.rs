@@ -123,7 +123,7 @@ impl Database {
 
         let progress_c = Arc::new(Mutex::new(Progress::new(300)));
         let crates = self.crates.clone();
-        (1..30).for_each(move |page_idx| {
+        (1..300).unchained_for_each(move |page_idx| {
             let mut crates_url = crates_url_template.to_string();
             crates_url.push_str(&page_idx.to_string());
 
@@ -153,9 +153,9 @@ impl Database {
                 let version = crates_json["crates"][i]["max_version"].to_string();
                 let description = crates_json["crates"][i]["description"].to_string();
 
-                if !crate::is_bin(&name, &version) {
-                    return;
-                }
+                //                if !crate::is_bin(&name, &version) {
+                //                  return;
+                //            }
 
                 if version == "null" {
                     return;
