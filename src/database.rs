@@ -96,8 +96,6 @@ impl Database {
                     .into_iter()
                     .filter(|c| !blacklist.contains(&c.name))
                     .collect();
-                //dbg!(&crates);
-                //let crates: Vec<Crate> = crates.crates;
 
                 let database = Self {
                     crates: Arc::new(Mutex::new(crates)),
@@ -109,7 +107,7 @@ impl Database {
                     .unwrap()
                     > Duration::new(24 * 60 * 60, 0)
                 {
-                    //database.update();
+                    database.update();
                 }
 
                 database
