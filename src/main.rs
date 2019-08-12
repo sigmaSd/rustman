@@ -378,12 +378,13 @@ fn __is_bin(_n: &str, _v: &str) -> bool {
 }
 
 fn install(s: &str) {
-    Command::new("cargo")
+    let status = Command::new("cargo")
         .args(&["install", "--force", s])
-        .spawn()
-        .unwrap()
-        .wait()
+        .status()
         .unwrap();
+    if !status.success() {
+        Database::add_to_blaklist(DATABASE.blacklist.clone(), s);
+    }
 }
 
 fn remove(s: &str) {

@@ -1,7 +1,7 @@
 use crate::progress::Progress;
 
 use serde::{Deserialize, Serialize};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use unchained::Unchained;
@@ -12,6 +12,7 @@ const MAX_NET_TRY: usize = 10;
 #[derive(Default)]
 pub struct Database {
     crates: Arc<Mutex<Vec<Crate>>>,
+    pub blacklist: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -89,11 +90,18 @@ impl Database {
                     }
                     all_crates
                 };
+
+                let blacklist = Self::read_black_list();
+                let crates = crates
+                    .into_iter()
+                    .filter(|c| !blacklist.contains(&c.name))
+                    .collect();
                 //dbg!(&crates);
                 //let crates: Vec<Crate> = crates.crates;
 
                 let database = Self {
                     crates: Arc::new(Mutex::new(crates)),
+                    blacklist,
                 };
 
                 if SystemTime::now()
@@ -116,6 +124,42 @@ impl Database {
         }
     }
 
+    pub fn read_black_list() -> Vec<String> {
+        let cache_dir = dirs::cache_dir().unwrap().join("rustman");
+        let _ = std::fs::create_dir_all(&cache_dir);
+
+        let blacklist_path = cache_dir.join("blacklist");
+        let blacklist = match std::fs::read_to_string(blacklist_path) {
+            Ok(bl) => bl,
+            Err(_) => String::new(),
+        };
+
+        blacklist.lines().map(ToOwned::to_owned).collect()
+    }
+
+    pub fn add_to_blaklist(mut blacklist: Vec<String>, s: &str) {
+        blacklist.push(s.to_string());
+
+        let cache_dir = dirs::cache_dir().unwrap().join("rustman");
+        let _ = std::fs::create_dir_all(&cache_dir);
+
+        let blacklist_path = cache_dir.join("blacklist");
+        let mut blacklist_file = std::fs::File::create(blacklist_path).unwrap();
+
+        writeln!(
+            blacklist_file,
+            "{}",
+            blacklist
+                .iter()
+                .map(|p| {
+                    let mut p = p.to_string();
+                    p.push('\n');
+                    p
+                })
+                .collect::<String>()
+        )
+        .unwrap();
+    }
     pub fn update(&mut self) {
         self.crates.lock().unwrap().clear();
 
@@ -183,8 +227,6 @@ impl Database {
     }
 
     pub fn save(&self) {
-        use std::io::Write;
-
         let cache_dir = dirs::cache_dir().unwrap().join("rustman");
         let _ = std::fs::create_dir_all(&cache_dir);
 
