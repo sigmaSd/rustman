@@ -1,3 +1,9 @@
+**0.3.1**
+- Add offline flag
+
+**0.3.0**
+- Bypass cargo search limitation of 100 hit, rustman now searches all crates
+
 **0.2.3**
 - Add `-S` `-R` `--installed args`
 

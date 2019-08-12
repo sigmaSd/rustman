@@ -25,9 +25,10 @@ Search and install rust binaires
 
 `rustman --show-installed`
 
-*update crates database*
+**flags:**
 
-`rustamn --update-database`
+- `update-database` -> force database update
+- `offline` -> don't update database
 
 ## How It works
 
