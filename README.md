@@ -27,8 +27,8 @@ Search and install rust binaires
 
 **flags:**
 
-- `update-database` -> force database update
-- `offline` -> skip database update
+- `--update-database` -> force database update
+- `--offline` -> skip database update
 
 ## How It works
 
