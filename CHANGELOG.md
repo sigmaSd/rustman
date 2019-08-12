@@ -1,3 +1,6 @@
+**0.3.2**
+- Improve search logic (multiple arguments are now intersected)
+
 **0.3.1**
 - Add offline flag
 
