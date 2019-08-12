@@ -332,12 +332,8 @@ fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>, Error
 
 #[cfg(not(test))]
 fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
-    let results: Vec<Vec<crate::database::Crate>> = s.iter().map(|n| DATABASE.search(n)).collect();
-    let results: Vec<crate::database::Crate> =
-        results.into_iter().fold(Vec::new(), |mut acc, n| {
-            acc.extend(n);
-            acc
-        });
+    let results: Vec<crate::database::Crate> = DATABASE.search(s);
+
     let results = results
         .into_iter()
         .map(|c| (c.name, c.version, c.description))

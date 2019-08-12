@@ -27,6 +27,14 @@ pub struct Crate {
     pub description: String,
 }
 
+impl Crate {
+    fn contains(&self, needles: &[String]) -> bool {
+        needles
+            .iter()
+            .all(|needle| self.name.contains(needle) || self.description.contains(needle))
+    }
+}
+
 impl Database {
     pub fn new() -> Self {
         let cache_dir = dirs::cache_dir().unwrap().join("rustman");
@@ -242,14 +250,14 @@ impl Database {
         writeln!(database_file, "{}", database_toml).unwrap();
     }
 
-    pub fn search(&self, needle: &str) -> Vec<Crate> {
-        let needle = needle.to_lowercase();
+    pub fn search(&self, needles: &[String]) -> Vec<Crate> {
+        let needles: Vec<String> = needles.iter().map(|s| s.to_lowercase()).collect();
 
         self.crates
             .lock()
             .unwrap()
             .iter()
-            .filter(|c| c.name.contains(&needle) || c.description.contains(&needle))
+            .filter(|c| c.contains(&needles))
             .cloned()
             .collect()
     }
