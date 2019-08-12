@@ -102,12 +102,16 @@ impl Database {
                     blacklist,
                 };
 
-                if SystemTime::now()
-                    .duration_since(database_file.metadata().unwrap().modified().unwrap())
-                    .unwrap()
-                    > Duration::new(24 * 60 * 60, 0)
+                let args: Vec<String> = std::env::args().collect();
+                if !args.contains(&"--offline".to_string())
+                    && (args.contains(&"--update-database".to_string())
+                        || SystemTime::now()
+                            .duration_since(database_file.metadata().unwrap().modified().unwrap())
+                            .unwrap()
+                            > Duration::new(24 * 60 * 60, 0))
                 {
                     database.update();
+                    database.save();
                 }
 
                 database

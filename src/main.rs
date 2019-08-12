@@ -26,7 +26,6 @@ enum Action {
     InstallPackage(Vec<String>),
     RemovePackage(Vec<String>),
     ShowInstalled,
-    UpdateDatabse,
 }
 
 #[derive(Debug)]
@@ -77,28 +76,20 @@ fn main() {
         Action::InstallPackage(packages) => install_packages(packages),
         Action::RemovePackage(packages) => remove_packages(packages),
         Action::ShowInstalled => show_installed(),
-        Action::UpdateDatabse => force_update_database(),
     }
 }
 
 fn parse_args() -> Action {
-    let envs: Vec<String> = std::env::args().skip(1).collect();
+    let is_flag = |t: &str| -> bool { t.starts_with("--") };
+    let envs: Vec<String> = std::env::args().skip(1).filter(|t| !is_flag(t)).collect();
 
     match envs.get(0).map(|s| s.as_str()) {
         Some("-S") => Action::InstallPackage(envs[1..].to_vec()),
         Some("-R") => Action::RemovePackage(envs[1..].to_vec()),
         Some("--show-installed") => Action::ShowInstalled,
-        Some("--update-database") => Action::UpdateDatabse,
         Some(_) => Action::SearchByName(envs),
         None => Action::FullUpdate,
     }
-}
-
-fn force_update_database() {
-    let mut database = Database::default();
-    database.update();
-    database.save();
-    "Database updataed!".color_print(Color::Yellow);
 }
 
 fn show_installed() {
