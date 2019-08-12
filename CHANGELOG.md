@@ -1,3 +1,6 @@
+**0.3.3**
+- Make `show-installed` a cmd instead of a flag
+
 **0.3.2**
 - Improve search logic (multiple arguments are now intersected)
 

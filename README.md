@@ -23,7 +23,7 @@ Search and install rust binaires
 
 *show installed pacakges*
 
-`rustman --show-installed`
+`rustman show-installed`
 
 **flags:**
 

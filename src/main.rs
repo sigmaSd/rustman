@@ -86,7 +86,7 @@ fn parse_args() -> Action {
     match envs.get(0).map(|s| s.as_str()) {
         Some("-S") => Action::InstallPackage(envs[1..].to_vec()),
         Some("-R") => Action::RemovePackage(envs[1..].to_vec()),
-        Some("--show-installed") => Action::ShowInstalled,
+        Some("show-installed") => Action::ShowInstalled,
         Some(_) => Action::SearchByName(envs),
         None => Action::FullUpdate,
     }
