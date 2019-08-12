@@ -148,6 +148,10 @@ impl Database {
     }
 
     pub fn add_to_blaklist(mut blacklist: Vec<String>, s: &str) {
+        if blacklist.contains(&s.to_string()) {
+            return;
+        }
+
         blacklist.push(s.to_string());
 
         let cache_dir = dirs::cache_dir().unwrap().join("rustman");
