@@ -32,9 +32,9 @@ Search and install rust binaires
 
 ## How It works
 
-rustman will download metadata about all available crates once per day, or if forced with `--update-database` flag
+`rustman` will download metadata about all available crates once per day, or if forced with `--update-database` flag
 
-Unfortunately crates.io api doesn't expose if a crate is a binary or not, so the for now rustman will search all crates, and each time a non binary crate is downloaded it will add it to a blacklist so it doesn't appear again in search results
+Unfortunately `crates.io` api doesn't expose if a crate is a binary or not, so for now `rustman` will search all crates, and each time a non binary crate is downloaded it will add it to a blacklist so it doesn't appear again in search results
 
 ## Example
 `rustman repl`
