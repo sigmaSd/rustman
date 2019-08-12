@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
@@ -5,12 +6,18 @@ use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 mod colors;
 use colors::Colors;
+mod database;
+use database::Database;
 use unchained::Unchained;
+mod progress;
+use progress::Progress;
 
 type Name = String;
 type Version = String;
 type OnlineVersion = String;
 type Description = String;
+
+pub static DATABASE: Lazy<Database> = Lazy::new(Database::new);
 
 enum Action {
     FullUpdate,
@@ -19,6 +26,7 @@ enum Action {
     InstallPackage(Vec<String>),
     RemovePackage(Vec<String>),
     ShowInstalled,
+    UpdateDatabse,
 }
 
 #[derive(Debug)]
@@ -69,6 +77,7 @@ fn main() {
         Action::InstallPackage(packages) => install_packages(packages),
         Action::RemovePackage(packages) => remove_packages(packages),
         Action::ShowInstalled => show_installed(),
+        Action::UpdateDatabse => force_update_database(),
     }
 }
 
@@ -78,10 +87,18 @@ fn parse_args() -> Action {
     match envs.get(0).map(|s| s.as_str()) {
         Some("-S") => Action::InstallPackage(envs[1..].to_vec()),
         Some("-R") => Action::RemovePackage(envs[1..].to_vec()),
-        Some("--installed") => Action::ShowInstalled,
+        Some("--show-installed") => Action::ShowInstalled,
+        Some("--update-database") => Action::UpdateDatabse,
         Some(_) => Action::SearchByName(envs),
         None => Action::FullUpdate,
     }
+}
+
+fn force_update_database() {
+    let mut database = Database::default();
+    database.update();
+    database.save();
+    "Database updataed!".color_print(Color::Yellow);
 }
 
 fn show_installed() {
@@ -125,11 +142,9 @@ fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
         .unchained_for_each(move |(name, version, description)| {
             let hit_cc = hit_c.clone();
             let progress_c = progress.clone();
-            if is_bin(&name, &version) {
-                hit_cc.lock().unwrap().push((name, version, description));
-                progress_c.lock().unwrap().advance();
-                progress_c.lock().unwrap().print();
-            }
+            hit_cc.lock().unwrap().push((name, version, description));
+            progress_c.lock().unwrap().advance();
+            progress_c.lock().unwrap().print();
         });
 
     //new line
@@ -157,22 +172,11 @@ fn get_from_link(link: &str) {
 fn full_update() -> Result<(), Errors> {
     let installed = look_for_installed();
 
-    let online_versions = Arc::new(Mutex::new(vec![]));
-    let progress = Arc::new(Mutex::new(Progress::new(installed.len())));
-
-    let online_versions_c = online_versions.clone();
-
-    installed.clone().into_iter().unchained_for_each(move |p| {
-        let online_versions_cc = online_versions_c.clone();
-        let progress_c = progress.clone();
-
-        let p = search_one_pkg(&p.0);
-        if let Ok(Some(p)) = p {
-            online_versions_cc.lock().unwrap().push(p);
-        }
-        progress_c.lock().unwrap().advance();
-        progress_c.lock().unwrap().print();
-    });
+    let online_versions: Vec<(Name, Version, Description)> = installed
+        .iter()
+        .map(|p| search_one_pkg(&p.0))
+        .filter_map(|p| if let Ok(p) = p { p } else { None })
+        .collect();
 
     //new line
     println!();
@@ -181,11 +185,6 @@ fn full_update() -> Result<(), Errors> {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let _ = stdout.reset();
     let _ = stdout.flush();
-
-    let online_versions = Arc::try_unwrap(online_versions)
-        .unwrap()
-        .into_inner()
-        .unwrap();
 
     let needs_update_pkgs = diff(&installed, &online_versions);
 
@@ -342,23 +341,16 @@ fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>, Error
 
 #[cfg(not(test))]
 fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
-    let out = std::process::Command::new("cargo")
-        .args(&["search", "--limit", "100"])
-        .args(s)
-        .output()?
-        .stdout;
-
-    let mut results = vec![];
-
-    for line in String::from_utf8(out)?.lines() {
-        if line.starts_with("...") {
-            continue;
-        }
-        let mut line = line.split('=');
-        let name = line.next().unwrap().trim().to_string();
-        let (version, description) = parse_version_desc(line.next().unwrap());
-        results.push((name, version, description));
-    }
+    let results: Vec<Vec<crate::database::Crate>> = s.iter().map(|n| DATABASE.search(n)).collect();
+    let results: Vec<crate::database::Crate> =
+        results.into_iter().fold(Vec::new(), |mut acc, n| {
+            acc.extend(n);
+            acc
+        });
+    let results = results
+        .into_iter()
+        .map(|c| (c.name, c.version, c.description))
+        .collect();
 
     Ok(results)
 }
@@ -371,20 +363,8 @@ fn search(_s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
     )])
 }
 
-fn parse_version_desc(s: &str) -> (Name, Version) {
-    let mut s = s.split('#');
-    let v = s.next().unwrap();
-    // description is optional
-    let d = s.next().unwrap_or("");
-    let mut v = v.trim()[1..].to_string();
-    v.pop();
-    let d = d.trim().to_string();
-
-    (v, d)
-}
-
-#[cfg(not(test))]
-fn is_bin(n: &str, v: &str) -> bool {
+//#[cfg(not(test))]
+fn _is_bin(n: &str, v: &str) -> bool {
     let doc = format!("https://docs.rs/crate/{}/{}", n, v);
     let mut writer = Vec::new();
     http_req::request::get(doc, &mut writer).unwrap();
@@ -392,18 +372,19 @@ fn is_bin(n: &str, v: &str) -> bool {
     let writer = String::from_utf8(writer).unwrap();
     writer.contains("is not a library")
 }
-#[cfg(test)]
-fn is_bin(_n: &str, _v: &str) -> bool {
+//#[cfg(test)]
+fn __is_bin(_n: &str, _v: &str) -> bool {
     true
 }
 
 fn install(s: &str) {
-    Command::new("cargo")
+    let status = Command::new("cargo")
         .args(&["install", "--force", s])
-        .spawn()
-        .unwrap()
-        .wait()
+        .status()
         .unwrap();
+    if !status.success() {
+        Database::add_to_blaklist(DATABASE.blacklist.clone(), s);
+    }
 }
 
 fn remove(s: &str) {
@@ -445,51 +426,6 @@ fn look_for_installed() -> Vec<(Name, Version)> {
             .collect()
     } else {
         vec![]
-    }
-}
-
-struct Progress {
-    width: usize,
-    current: usize,
-    step: usize,
-    printer: StandardStream,
-}
-
-impl Progress {
-    fn new(max: usize) -> Self {
-        let mut printer = StandardStream::stdout(ColorChoice::Always);
-        printer
-            .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
-            .unwrap();
-
-        let width = max / 2;
-        let step = max.checked_div(width).unwrap_or(width);
-        let current = 0;
-
-        Self {
-            width,
-            step,
-            current,
-            printer,
-        }
-    }
-
-    fn advance(&mut self) {
-        self.current += 1;
-    }
-
-    fn print(&mut self) {
-        let progress = self.current.checked_div(self.step).unwrap_or(0);
-        let remaining = match self.width.checked_sub(progress) {
-            Some(n) => n,
-            None => return,
-        };
-        let progress: String = std::iter::repeat('#').take(progress).collect();
-        let remaining: String = std::iter::repeat(' ').take(remaining).collect();
-
-        write!(&mut self.printer, "\r").unwrap();
-        write!(&mut self.printer, "\t\t[{}{}]", progress, remaining).unwrap();
-        self.printer.flush().unwrap();
     }
 }
 
