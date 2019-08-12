@@ -172,27 +172,11 @@ fn get_from_link(link: &str) {
 fn full_update() -> Result<(), Errors> {
     let installed = look_for_installed();
 
-    //let online_versions = Arc::new(Mutex::new(vec![]));
-    let progress = Arc::new(Mutex::new(Progress::new(installed.len())));
-
-    //let online_versions_c = online_versions.clone();
-
     let online_versions: Vec<(Name, Version, Description)> = installed
         .iter()
         .map(|p| search_one_pkg(&p.0))
         .filter_map(|p| if let Ok(p) = p { p } else { None })
         .collect();
-    // unchained_for_each(move |p| {
-    //     let online_versions_cc = online_versions_c.clone();
-    //     let progress_c = progress.clone();
-    //
-    //     let p = search_one_pkg(&p.0);
-    //     if let Ok(Some(p)) = p {
-    //         online_versions_cc.lock().unwrap().push(p);
-    //     }
-    //     progress_c.lock().unwrap().advance();
-    //     progress_c.lock().unwrap().print();
-    // });
 
     //new line
     println!();
@@ -201,11 +185,6 @@ fn full_update() -> Result<(), Errors> {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let _ = stdout.reset();
     let _ = stdout.flush();
-
-    // let online_versions = Arc::try_unwrap(online_versions)
-    //     .unwrap()
-    //     .into_inner()
-    //     .unwrap();
 
     let needs_update_pkgs = diff(&installed, &online_versions);
 
@@ -384,20 +363,8 @@ fn search(_s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
     )])
 }
 
-fn parse_version_desc(s: &str) -> (Name, Version) {
-    let mut s = s.split('#');
-    let v = s.next().unwrap();
-    // description is optional
-    let d = s.next().unwrap_or("");
-    let mut v = v.trim()[1..].to_string();
-    v.pop();
-    let d = d.trim().to_string();
-
-    (v, d)
-}
-
 //#[cfg(not(test))]
-fn is_bin(n: &str, v: &str) -> bool {
+fn _is_bin(n: &str, v: &str) -> bool {
     let doc = format!("https://docs.rs/crate/{}/{}", n, v);
     let mut writer = Vec::new();
     http_req::request::get(doc, &mut writer).unwrap();
@@ -406,7 +373,7 @@ fn is_bin(n: &str, v: &str) -> bool {
     writer.contains("is not a library")
 }
 //#[cfg(test)]
-fn _is_bin(_n: &str, _v: &str) -> bool {
+fn __is_bin(_n: &str, _v: &str) -> bool {
     true
 }
 
