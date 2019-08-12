@@ -97,7 +97,7 @@ impl Database {
                     .filter(|c| !blacklist.contains(&c.name))
                     .collect();
 
-                let database = Self {
+                let mut database = Self {
                     crates: Arc::new(Mutex::new(crates)),
                     blacklist,
                 };
