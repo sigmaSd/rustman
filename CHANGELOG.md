@@ -1,3 +1,18 @@
+**0.4.0**
+- Yank all 0.3* versions and reset to 0.2.3 becuase of crates.io crawling policy
+
+**0.3.3**
+- Make `show-installed` a cmd instead of a flag
+
+**0.3.2**
+- Improve search logic (multiple arguments are now intersected)
+
+**0.3.1**
+- Add offline flag
+
+**0.3.0**
+- Bypass cargo search limitation of 100 hit, rustman now searches all crates
+
 **0.2.3**
 - Add `-S` `-R` `--installed args`
 
