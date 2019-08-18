@@ -1,3 +1,7 @@
+**Crawl branch**
+- crawls crates.io which is forbiden by its policy
+- crates.io suggests to use https://github.com/rust-lang/crates.io-index/ instead
+
 # rustman
 Cross platfrom package manager
 
