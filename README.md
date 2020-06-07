@@ -28,7 +28,7 @@ Search and install rust binaires
 ## Advanced usage
 *install a binary from a custom url*
 
-`rustman -S binary --custom-url $binary_url --version $custom_version`
+`rustman -S $binary --custom-url $binary_url --version $custom_version`
 
 This is useful for downloading binaries while keeping .crates.toml` updated
 
