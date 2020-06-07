@@ -97,8 +97,119 @@ fn show_installed() {
 }
 
 fn install_packages(packages: Vec<String>) {
+    if let Some(url_idx) = packages
+        .iter()
+        .position(|arg| arg.as_str() == "--custom-url")
+    {
+        install_package_from_custom_url(packages, url_idx);
+        std::process::exit(0);
+    }
+
     format!("Installing pacakges: {:?}\n", &packages).color_print(Color::Blue);
     packages.iter().for_each(|p| install(p));
+    "Done!".color_print(Color::Blue);
+}
+
+fn install_package_from_custom_url(package: Vec<String>, url_idx: usize) {
+    let program = &package[0];
+    let custom_url = &package[url_idx + 1];
+    let version_idx = package
+        .iter()
+        .position(|arg| arg.as_str() == "--version")
+        .expect("You must specify a version!");
+    let version = &package[version_idx + 1];
+
+    "Downloading program...\n".color_print(Color::Red);
+    let mut f = std::fs::File::create(program).unwrap();
+    let response = http_req::request::get(custom_url, &mut f).unwrap();
+    //follow redirect
+    if response.status_code().is_redirect() {
+        // clear file
+        let mut f = std::fs::File::create(program).unwrap();
+
+        // follow redirect using `location` field
+        http_req::request::get(response.headers().get("location").unwrap(), &mut f).unwrap();
+    }
+
+    // chmod +x on unix system
+    #[cfg(unix)]
+    {
+        // rust way is not working
+        // use std::os::unix::fs::PermissionsExt;
+        //f.metadata().unwrap().permissions().set_mode(0o755);
+        // just use chmod
+        "Changing program permission to 0o755\n".color_print(Color::Yellow);
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(program)
+            .output()
+            .unwrap();
+    }
+
+    "Installing program to $HOME/.cargo/bin\n".color_print(Color::Cyan);
+    // Copy file to "$HOME/.cargo/bin"
+    let destination = dirs::home_dir()
+        .unwrap()
+        .join(".cargo")
+        .join("bin")
+        .join(program);
+    std::fs::copy(program, destination).unwrap();
+
+    // Update program version in "$HOME/.cargo/.crates.toml"
+    let reg_path = dirs::home_dir()
+        .unwrap()
+        .join(".cargo")
+        .join(".crates.toml");
+
+    let reg_data = std::fs::read_to_string(&reg_path).unwrap();
+
+    let mut table: toml::map::Map<String, toml::Value> = toml::from_str(&reg_data.trim()).unwrap();
+    let mut program_entry = None;
+    let mut table_inner: toml::value::Table = table["v1"].clone().try_into().unwrap();
+
+    for key in table_inner.keys() {
+        if key.starts_with(program) {
+            program_entry = Some(key.clone());
+            break;
+        }
+    }
+
+    if let Some(program_entry) = program_entry {
+        let value = table_inner.remove(&program_entry).unwrap();
+        let mut entry: Vec<String> = program_entry
+            .split_whitespace()
+            .map(ToString::to_string)
+            .collect();
+        // update version
+        entry[1] = version.to_string();
+        let new_entry = entry.iter().fold(String::new(), |acc, x| {
+            if !acc.is_empty() {
+                acc + " " + x
+            } else {
+                acc + x
+            }
+        });
+        table_inner.insert(new_entry, value);
+        table["v1"] = toml::Value::Table(table_inner);
+
+        "Backing up $HOME/.cargo/.crates.toml in $Temp/rustman\n".color_print(Color::Magenta);
+        // save old copie of the table in tmp folder in case something goes wrong
+        let tmp_folder = std::env::temp_dir().join("rustman");
+        let _ = std::fs::create_dir_all(&tmp_folder);
+        // add a "random" hash so more copies can remain
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let rnd = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            % 10000;
+        std::fs::copy(&reg_path, tmp_folder.join(&format!(".crates.toml.{}", rnd))).unwrap();
+
+        "Updating $HOME/.cargo/.crates.toml\n".color_print(Color::Green);
+        // write the new table
+        let mut reg_file = std::fs::File::create(&reg_path).unwrap();
+        write!(&mut reg_file, "{}", toml::to_string(&table).unwrap()).unwrap();
+    }
     "Done!".color_print(Color::Blue);
 }
 
