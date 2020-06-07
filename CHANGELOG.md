@@ -1,3 +1,7 @@
+**0.4.1**
+- Add the ability do download binaries using `--custom-url` arg, note you must also specify the version  with `--version` so `.crates.toml` can be updated
+- Updated dependencies
+
 **0.4.0**
 - Yank all 0.3* versions and reset to 0.2.3 becuase of crates.io crawling policy
 

@@ -1,6 +1,6 @@
 [package]
 name = "rustman"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Nbiba Bedis <bedisnbiba@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -9,8 +9,8 @@ repository = "https://github.com/sigmaSd/rustman"
 license = "MIT"
 
 [dependencies]
-http_req = "0.5.0"
-dirs = "2.0.1"
-termcolor = "1.0.5"
-toml = "0.5.1"
+http_req = "0.6.1"
+dirs = "2.0.2"
+termcolor = "1.1.0"
+toml = "0.5.6"
 unchained = "0.1.3"
