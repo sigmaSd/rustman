@@ -105,8 +105,19 @@ fn install_packages(packages: Vec<String>) {
         std::process::exit(0);
     }
 
-    format!("Installing pacakges: {:?}\n", &packages).color_print(Color::Blue);
-    packages.iter().for_each(|p| install(p));
+    let actual_pkgs =
+        packages
+            .iter()
+            .filter(|p| !p.starts_with('-'))
+            .fold(String::new(), |acc, x| {
+                if acc.is_empty() {
+                    acc + x
+                } else {
+                    acc + " " + x
+                }
+            });
+    format!("Installing pacakges: {}\n", &actual_pkgs).color_print(Color::Blue);
+    install(&packages.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
     "Done!".color_print(Color::Blue);
 }
 
@@ -343,7 +354,7 @@ fn full_update() -> Result<(), Errors> {
     }
 
     let update_all = |v: &Vec<(&Name, &Version, &Description)>| {
-        v.iter().for_each(|p| install(p.0));
+        v.iter().for_each(|p| install(&[p.0]));
     };
 
     ":: Proceed with installation? [Y/n]".color_print(Color::Yellow);
@@ -432,7 +443,7 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     let reqeusted = r.get(num - input);
 
     if let Some(req) = reqeusted {
-        install(&req.0);
+        install(&[&req.0]);
     } else {
         return Err(Errors::Custom("0 is not a valid input"));
     }
@@ -508,9 +519,10 @@ fn is_bin(_n: &str, _v: &str) -> bool {
     true
 }
 
-fn install(s: &str) {
+fn install(s: &[&str]) {
     Command::new("cargo")
-        .args(&["install", "--force", s])
+        .args(&["install", "--force"])
+        .args(s)
         .spawn()
         .unwrap()
         .wait()

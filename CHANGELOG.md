@@ -1,3 +1,6 @@
+**0.4.2**
+- `rustman -S` now sends correctly the args to cargo install (so for exp, `rustman -S --git $repo_url` now works)
+
 **0.4.1**
 - Add the ability do download binaries using `--custom-url` arg, note you must also specify the version  with `--version` so `.crates.toml` can be updated
 - Updated dependencies
