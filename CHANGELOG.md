@@ -1,3 +1,7 @@
+**0.5.0**
+- Port to async (Tokio runtime + reqwest)
+- Clean up code, handle errors, remove unnecessary functions, etc..
+
 **0.4.2**
 - `rustman -S` now sends correctly the args to cargo install (so for exp, `rustman -S --git $repo_url` now works)
 
