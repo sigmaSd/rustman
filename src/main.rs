@@ -123,23 +123,21 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
     }
 
     let hit = Arc::new(Mutex::new(vec![]));
-    let progress = Arc::new(Mutex::new(Progress::new(raw_hits.len())?));
-
     let hit_c = hit.clone();
+    let progress = Arc::new(Mutex::new(Progress::new(raw_hits.len())?));
 
     let client = reqwest::Client::new();
     let f = raw_hits
         .into_iter()
         .map(move |(name, version, description)| {
-            let hit_cc = hit_c.clone();
-            let progress_c = progress.clone();
+            let hit = hit_c.clone();
+            let progress = progress.clone();
             let client = client.clone();
 
             tokio::spawn(async move {
                 match is_bin(client, &name, &version).await {
                     Ok(_) => {
-                        hit_cc
-                            .lock()
+                        hit.lock()
                             .expect(MUTEX_LOCK_ERROR)
                             .push((name, version, description));
                     }
@@ -147,7 +145,7 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
                         eprintln!("Error while checking crate {} type. Error: {}", name, e);
                     }
                 };
-                let mut progress = progress_c.lock().expect(MUTEX_LOCK_ERROR);
+                let mut progress = progress.lock().expect(MUTEX_LOCK_ERROR);
                 progress.advance();
                 progress.print().expect(PROGRESS_PRINTING_ERROR);
             })
@@ -158,7 +156,7 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
     //new line
     println!();
 
-    // safe unwrap since we awaited all futures
+    // safe unwrap since we awaited all futures + hitc_c was consumed
     main_loop(Arc::try_unwrap(hit).unwrap().into_inner()?)
 }
 
@@ -167,8 +165,6 @@ async fn full_update() -> Result<()> {
 
     let online_versions = Arc::new(Mutex::new(vec![]));
     let progress = Arc::new(Mutex::new(Progress::new(installed.len())?));
-
-    //let online_versions_c = online_versions.clone();
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
@@ -182,14 +178,14 @@ async fn full_update() -> Result<()> {
 
     let f = installed.clone().into_iter().map(|p| {
         let client = client.clone();
-        let online_versions_c = online_versions.clone();
-        let progress_c = progress.clone();
+        let online_versions = online_versions.clone();
+        let progress = progress.clone();
         tokio::spawn(async move {
             let p = search_one_pkg(client, &p.0).await;
             if let Ok(p) = p {
-                online_versions_c.lock().expect(MUTEX_LOCK_ERROR).push(p);
+                online_versions.lock().expect(MUTEX_LOCK_ERROR).push(p);
             }
-            let mut progress = progress_c.lock().expect(MUTEX_LOCK_ERROR);
+            let mut progress = progress.lock().expect(MUTEX_LOCK_ERROR);
             progress.advance();
             progress.print().expect(PROGRESS_PRINTING_ERROR);
         })
