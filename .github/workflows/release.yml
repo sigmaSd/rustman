@@ -132,8 +132,10 @@ jobs:
       shell: bash
       run: |
         staging="rustman-${{ env.RELEASE_VERSION }}-${{ matrix.target }}"
+        mkdir -p "$staging"/doc
 
         cp {README.md,LICENSE} "$staging/"
+        cp CHANGELOG.md "$staging/doc/"
 
         if [ "${{ matrix.os }}" = "windows-2019" ]; then
           cp "target/release/rustman.exe" "$staging/"
