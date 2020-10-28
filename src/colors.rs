@@ -6,12 +6,13 @@ pub trait Colors
 where
     Self: fmt::Display,
 {
-    fn color_print(&self, color: Color) {
-        let mut stdout = StandardStream::stdout(ColorChoice::Always);
-        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(color)));
-        let _ = write!(&mut stdout, "{}", &self);
-        let _ = stdout.reset();
-        let _ = stdout.flush();
+    fn color_print(&self, color: Color) -> super::Result<()> {
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        stdout.set_color(ColorSpec::new().set_fg(Some(color)))?;
+        write!(&mut stdout, "{}", &self)?;
+        stdout.reset()?;
+        stdout.flush()?;
+        Ok(())
     }
 }
 

@@ -14,6 +14,9 @@ type Version = String;
 type OnlineVersion = String;
 type Description = String;
 
+const PROGRESS_PRINTING_ERROR: &str = "Error printing progress";
+const MUTEX_LOCK_ERROR: &str = "Error locking mutex";
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 enum Action {
@@ -29,29 +32,31 @@ fn main() {
         .threaded_scheduler()
         .enable_all()
         .build()
-        .unwrap()
+        .expect("Error building tokio runtime")
         .block_on(async {
-            async_main().await;
+            if let Err(e) = async_main().await {
+                eprintln!("Something happened: {}", e);
+            }
         })
 }
 
-async fn async_main() {
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
+async fn async_main() -> Result<()> {
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
 
     match parse_args() {
-        Action::SearchByName(packages) => match get_from_name(packages).await {
-            Ok(_) => (),
-            Err(e) => {
-                writeln!(&mut stdout, "{}", e).unwrap();
-                stdout.reset().unwrap();
-                stdout.flush().unwrap();
+        Action::SearchByName(packages) => {
+            if let Err(e) = get_from_name(packages).await {
+                writeln!(&mut stdout, "{}", e)?;
+                stdout.reset()?;
+                stdout.flush()?;
             }
-        },
-        Action::FullUpdate => full_update().await.unwrap_or_default(),
-        Action::InstallPackage(packages) => install_packages(packages),
-        Action::RemovePackage(packages) => remove_packages(packages),
-        Action::ShowInstalled => show_installed(),
+        }
+        Action::FullUpdate => full_update().await?,
+        Action::InstallPackage(packages) => install_packages(packages)?,
+        Action::RemovePackage(packages) => remove_packages(packages)?,
+        Action::ShowInstalled => show_installed()?,
     }
+    Ok(())
 }
 
 fn parse_args() -> Action {
@@ -66,17 +71,22 @@ fn parse_args() -> Action {
     }
 }
 
-fn show_installed() {
-    let installed = look_for_installed();
-    let max_width = installed.iter().map(|p| p.0.len()).max().unwrap();
+fn show_installed() -> Result<()> {
+    let installed = look_for_installed()?;
+    let max_width = installed
+        .iter()
+        .map(|p| p.0.len())
+        .max()
+        .unwrap_or_default();
 
-    installed.into_iter().for_each(|p| {
-        format!("{:width$}\t", p.0, width = max_width).color_print(Color::Yellow);
-        format!("{}\n", p.1).color_print(Color::Red);
-    });
+    for p in installed {
+        format!("{:width$}\t", p.0, width = max_width).color_print(Color::Yellow)?;
+        format!("{}\n", p.1).color_print(Color::Red)?;
+    }
+    Ok(())
 }
 
-fn install_packages(packages: Vec<String>) {
+fn install_packages(packages: Vec<String>) -> Result<()> {
     let actual_pkgs =
         packages
             .iter()
@@ -88,15 +98,21 @@ fn install_packages(packages: Vec<String>) {
                     acc + " " + x
                 }
             });
-    format!("Installing pacakges: {}\n", &actual_pkgs).color_print(Color::Blue);
-    install(&packages.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
-    "Done!".color_print(Color::Blue);
+    format!("Installing pacakges: {}\n", &actual_pkgs).color_print(Color::Blue)?;
+    install(&packages.iter().map(|s| s.as_str()).collect::<Vec<&str>>())
+        .unwrap_or_else(|_| panic!("Error installing {:?}", packages));
+    "Done!".color_print(Color::Blue)?;
+    Ok(())
 }
 
-fn remove_packages(packages: Vec<String>) {
-    format!("Removing pacakges: {:?}\n", &packages).color_print(Color::Blue);
-    packages.iter().for_each(|p| remove(p));
-    "Done!".color_print(Color::Blue);
+fn remove_packages(packages: Vec<String>) -> Result<()> {
+    format!("Removing pacakges: {:?}\n", &packages).color_print(Color::Blue)?;
+    packages.iter().for_each(|p| {
+        remove(p).unwrap_or_else(|_| panic!("Error removing {}", p));
+    });
+
+    "Done!".color_print(Color::Blue)?;
+    Ok(())
 }
 
 async fn get_from_name(packages: Vec<String>) -> Result<()> {
@@ -107,7 +123,7 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
     }
 
     let hit = Arc::new(Mutex::new(vec![]));
-    let progress = Arc::new(Mutex::new(Progress::new(raw_hits.len())));
+    let progress = Arc::new(Mutex::new(Progress::new(raw_hits.len())?));
 
     let hit_c = hit.clone();
 
@@ -120,11 +136,20 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
             let client = client.clone();
 
             tokio::spawn(async move {
-                if is_bin(client, &name, &version).await.unwrap() {
-                    hit_cc.lock().unwrap().push((name, version, description));
-                    progress_c.lock().unwrap().advance();
-                    progress_c.lock().unwrap().print();
-                }
+                match is_bin(client, &name, &version).await {
+                    Ok(_) => {
+                        hit_cc
+                            .lock()
+                            .expect(MUTEX_LOCK_ERROR)
+                            .push((name, version, description));
+                    }
+                    Err(e) => {
+                        eprintln!("Error while checking crate {} type. Error: {}", name, e);
+                    }
+                };
+                let mut progress = progress_c.lock().expect(MUTEX_LOCK_ERROR);
+                progress.advance();
+                progress.print().expect(PROGRESS_PRINTING_ERROR);
             })
         });
 
@@ -133,14 +158,15 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
     //new line
     println!();
 
-    main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap())
+    // safe unwrap since we awaited all futures
+    main_loop(Arc::try_unwrap(hit).unwrap().into_inner()?)
 }
 
 async fn full_update() -> Result<()> {
-    let installed = look_for_installed();
+    let installed = look_for_installed()?;
 
     let online_versions = Arc::new(Mutex::new(vec![]));
-    let progress = Arc::new(Mutex::new(Progress::new(installed.len())));
+    let progress = Arc::new(Mutex::new(Progress::new(installed.len())?));
 
     //let online_versions_c = online_versions.clone();
 
@@ -152,8 +178,7 @@ async fn full_update() -> Result<()> {
 
     let client = reqwest::Client::builder()
         .default_headers(headers)
-        .build()
-        .unwrap();
+        .build()?;
 
     let f = installed.clone().into_iter().map(|p| {
         let client = client.clone();
@@ -161,11 +186,12 @@ async fn full_update() -> Result<()> {
         let progress_c = progress.clone();
         tokio::spawn(async move {
             let p = search_one_pkg(client, &p.0).await;
-            if let Ok(Some(p)) = p {
-                online_versions_c.lock().unwrap().push(p);
+            if let Ok(p) = p {
+                online_versions_c.lock().expect(MUTEX_LOCK_ERROR).push(p);
             }
-            progress_c.lock().unwrap().advance();
-            progress_c.lock().unwrap().print();
+            let mut progress = progress_c.lock().expect(MUTEX_LOCK_ERROR);
+            progress.advance();
+            progress.print().expect(PROGRESS_PRINTING_ERROR);
         })
     });
 
@@ -175,19 +201,17 @@ async fn full_update() -> Result<()> {
     println!();
 
     // clear color
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    let _ = stdout.reset();
-    let _ = stdout.flush();
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    stdout.reset()?;
+    stdout.flush()?;
 
-    let online_versions = Arc::try_unwrap(online_versions)
-        .unwrap()
-        .into_inner()
-        .unwrap();
+    // safe unwrap since we awaited all futures
+    let online_versions = Arc::try_unwrap(online_versions).unwrap().into_inner()?;
 
     let needs_update_pkgs = diff(&installed, &online_versions);
 
     if needs_update_pkgs.is_empty() {
-        "Everything is uptodate!".color_print(Color::Blue);
+        "Everything is uptodate!".color_print(Color::Blue)?;
         println!();
         return Ok(());
     }
@@ -226,21 +250,23 @@ async fn full_update() -> Result<()> {
         w2 = w2,
         w3 = w3,
     )
-    .color_print(Color::Cyan);
+    .color_print(Color::Cyan)?;
     println!();
 
     for package in &needs_update_pkgs {
-        format!("{:w1$}\t", package.0, w1 = w1).color_print(Color::Blue);
-        format!("{:w2$}\t", package.1, w2 = w2).color_print(Color::Green);
-        format!("{:w3$}\t", package.2, w3 = w3).color_print(Color::Yellow);
+        format!("{:w1$}\t", package.0, w1 = w1).color_print(Color::Blue)?;
+        format!("{:w2$}\t", package.1, w2 = w2).color_print(Color::Green)?;
+        format!("{:w3$}\t", package.2, w3 = w3).color_print(Color::Yellow)?;
         println!();
     }
 
     let update_all = |v: &Vec<(&Name, &Version, &Description)>| {
-        v.iter().for_each(|p| install(&[p.0]));
+        v.iter().for_each(|p| {
+            install(&[p.0]).unwrap_or_else(|_| panic!("Error installing {}", p.0));
+        });
     };
 
-    ":: Proceed with installation? [Y/n]".color_print(Color::Yellow);
+    ":: Proceed with installation? [Y/n]".color_print(Color::Yellow)?;
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
     if answer.trim().is_empty() || answer.trim().to_lowercase() == "y" {
@@ -267,8 +293,8 @@ fn diff<'a>(
 }
 
 fn main_loop(r: Vec<(String, String, String)>) -> Result<()> {
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    let installed = look_for_installed();
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    let installed = look_for_installed()?;
     let num = r.len();
     if num == 0 {
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
@@ -323,7 +349,7 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<()> {
     let reqeusted = r.get(num - input);
 
     if let Some(req) = reqeusted {
-        install(&[&req.0]);
+        install(&[&req.0]).unwrap_or_else(|_| panic!("Error installing {}", req.0));
     } else {
         return Err("0 is not a valid input".into());
     }
@@ -344,10 +370,7 @@ struct Crate {
     name: String,
 }
 
-async fn search_one_pkg(
-    client: reqwest::Client,
-    s: &str,
-) -> Result<Option<(Name, Version, Description)>> {
+async fn search_one_pkg(client: reqwest::Client, s: &str) -> Result<(Name, Version, Description)> {
     const URL: &str = "https://crates.io/api/v1/crates";
     let resp: Resp = client
         .get(&format!("{}/{}", URL, s))
@@ -356,11 +379,11 @@ async fn search_one_pkg(
         .json()
         .await?;
 
-    Ok(Some((
+    Ok((
         resp.r_crate.name,
         resp.r_crate.max_version,
         resp.r_crate.description,
-    )))
+    ))
 }
 
 fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>> {
@@ -372,29 +395,34 @@ fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>> {
 
     let mut results = vec![];
 
-    for line in String::from_utf8(out)?.lines() {
+    let try_parse = |line: &str| {
         if line.starts_with("...") {
-            continue;
+            return None;
         }
         let mut line = line.split('=');
-        let name = line.next().unwrap().trim().to_string();
-        let (version, description) = parse_version_desc(line.next().unwrap());
-        results.push((name, version, description));
+        let name = line.next()?.trim().to_string();
+        let (version, description) = parse_version_desc(line.next()?)?;
+        Some((name, version, description))
+    };
+    for line in String::from_utf8(out)?.lines() {
+        if let Some((name, version, description)) = try_parse(line) {
+            results.push((name, version, description));
+        }
     }
 
     Ok(results)
 }
 
-fn parse_version_desc(s: &str) -> (Name, Version) {
+fn parse_version_desc(s: &str) -> Option<(Name, Version)> {
     let mut s = s.split('#');
-    let v = s.next().unwrap();
+    let v = s.next()?;
     // description is optional
     let d = s.next().unwrap_or("");
     let mut v = v.trim()[1..].to_string();
     v.pop();
     let d = d.trim().to_string();
 
-    (v, d)
+    Some((v, d))
 }
 
 async fn is_bin(client: reqwest::Client, n: &str, v: &str) -> Result<bool> {
@@ -405,55 +433,48 @@ async fn is_bin(client: reqwest::Client, n: &str, v: &str) -> Result<bool> {
     Ok(resp.contains("is not a library"))
 }
 
-fn install(s: &[&str]) {
+fn install(s: &[&str]) -> Result<()> {
     Command::new("cargo")
         .args(&["install", "--force"])
         .args(s)
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
+        .spawn()?
+        .wait()?;
+    Ok(())
 }
 
-fn remove(s: &str) {
+fn remove(s: &str) -> Result<()> {
     Command::new("cargo")
         .arg("uninstall")
         .arg(s)
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
+        .spawn()?
+        .wait()?;
+    Ok(())
 }
 
-fn look_for_installed() -> Vec<(Name, Version)> {
+fn look_for_installed() -> Result<Vec<(Name, Version)>> {
     let installed_bins_toml = fs::read_to_string(
         dirs::home_dir()
-            .unwrap()
+            .ok_or("Cannot read home dir location")?
             .join(".cargo")
             .join(".crates.toml"),
-    )
-    .unwrap();
+    )?;
 
-    let table: toml::map::Map<String, toml::Value> =
-        toml::from_str(&installed_bins_toml.trim()).unwrap();
+    let table: toml::map::Map<String, toml::Value> = toml::from_str(&installed_bins_toml.trim())?;
 
     if table.is_empty() {
-        return vec![];
+        return Ok(vec![]);
     }
 
     if let toml::Value::Table(table) = &table["v1"] {
-        table
+        Ok(table
             .keys()
-            .map(|k| {
+            .filter_map(|k| {
                 let mut key = k.split_whitespace();
-                (
-                    key.next().unwrap().to_string(),
-                    key.next().unwrap().to_string(),
-                )
+                Some((key.next()?.to_string(), key.next()?.to_string()))
             })
-            .collect()
+            .collect())
     } else {
-        vec![]
+        Ok(vec![])
     }
 }
 
@@ -465,39 +486,38 @@ struct Progress {
 }
 
 impl Progress {
-    fn new(max: usize) -> Self {
-        let mut printer = StandardStream::stdout(ColorChoice::Always);
-        printer
-            .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
-            .unwrap();
+    fn new(max: usize) -> Result<Self> {
+        let mut printer = StandardStream::stdout(ColorChoice::Auto);
+        printer.set_color(ColorSpec::new().set_fg(Some(Color::Red)))?;
 
         let width = max / 2;
         let step = max.checked_div(width).unwrap_or(width);
         let current = 0;
 
-        Self {
+        Ok(Self {
             width,
             step,
             current,
             printer,
-        }
+        })
     }
 
     fn advance(&mut self) {
         self.current += 1;
     }
 
-    fn print(&mut self) {
+    fn print(&mut self) -> Result<()> {
         let progress = self.current.checked_div(self.step).unwrap_or(0);
         let remaining = match self.width.checked_sub(progress) {
             Some(n) => n,
-            None => return,
+            None => return Ok(()),
         };
         let progress: String = std::iter::repeat('#').take(progress).collect();
         let remaining: String = std::iter::repeat(' ').take(remaining).collect();
 
-        write!(&mut self.printer, "\r").unwrap();
-        write!(&mut self.printer, "\t\t[{}{}]", progress, remaining).unwrap();
-        self.printer.flush().unwrap();
+        write!(&mut self.printer, "\r")?;
+        write!(&mut self.printer, "\t\t[{}{}]", progress, remaining)?;
+        self.printer.flush()?;
+        Ok(())
     }
 }
