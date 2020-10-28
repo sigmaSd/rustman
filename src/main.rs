@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 mod colors;
 use colors::Colors;
-use unchained::Unchained;
+use dirs_next as dirs;
 
 type Name = String;
 type Version = String;
@@ -21,42 +21,22 @@ enum Action {
     ShowInstalled,
 }
 
-#[derive(Debug)]
-enum Errors {
-    IoError(io::Error),
-    Utf8Error(std::string::FromUtf8Error),
-    Custom(&'static str),
-}
-
-impl From<io::Error> for Errors {
-    fn from(e: io::Error) -> Errors {
-        Errors::IoError(e)
-    }
-}
-
-impl From<std::string::FromUtf8Error> for Errors {
-    fn from(e: std::string::FromUtf8Error) -> Errors {
-        Errors::Utf8Error(e)
-    }
-}
-
-impl std::fmt::Display for Errors {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let error = match self {
-            Errors::IoError(e) => e.to_string(),
-            Errors::Utf8Error(e) => e.to_string(),
-            Errors::Custom(e) => e.to_string(),
-        };
-
-        write!(f, "Something happened! {}\n Rustman Out", error)
-    }
-}
-
 fn main() {
+    tokio::runtime::Builder::new()
+        .threaded_scheduler()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            async_main().await;
+        })
+}
+
+async fn async_main() {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
     match parse_args() {
-        Action::SearchByName(packages) => match get_from_name(packages) {
+        Action::SearchByName(packages) => match get_from_name(packages).await {
             Ok(_) => (),
             Err(e) => {
                 writeln!(&mut stdout, "{}", e).unwrap();
@@ -97,14 +77,6 @@ fn show_installed() {
 }
 
 fn install_packages(packages: Vec<String>) {
-    if let Some(url_idx) = packages
-        .iter()
-        .position(|arg| arg.as_str() == "--custom-url")
-    {
-        install_package_from_custom_url(packages, url_idx);
-        std::process::exit(0);
-    }
-
     let actual_pkgs =
         packages
             .iter()
@@ -121,120 +93,17 @@ fn install_packages(packages: Vec<String>) {
     "Done!".color_print(Color::Blue);
 }
 
-fn install_package_from_custom_url(package: Vec<String>, url_idx: usize) {
-    let program = &package[0];
-    let custom_url = &package[url_idx + 1];
-    let version_idx = package
-        .iter()
-        .position(|arg| arg.as_str() == "--version")
-        .expect("You must specify a version!");
-    let version = &package[version_idx + 1];
-
-    "Downloading program...\n".color_print(Color::Red);
-    let mut f = std::fs::File::create(program).unwrap();
-    let response = http_req::request::get(custom_url, &mut f).unwrap();
-    //follow redirect
-    if response.status_code().is_redirect() {
-        // clear file
-        let mut f = std::fs::File::create(program).unwrap();
-
-        // follow redirect using `location` field
-        http_req::request::get(response.headers().get("location").unwrap(), &mut f).unwrap();
-    }
-
-    // chmod +x on unix system
-    #[cfg(unix)]
-    {
-        // rust way is not working
-        // use std::os::unix::fs::PermissionsExt;
-        //f.metadata().unwrap().permissions().set_mode(0o755);
-        // just use chmod
-        "Changing program permission to 0o755\n".color_print(Color::Yellow);
-        std::process::Command::new("chmod")
-            .arg("+x")
-            .arg(program)
-            .output()
-            .unwrap();
-    }
-
-    "Installing program to $HOME/.cargo/bin\n".color_print(Color::Cyan);
-    // Copy file to "$HOME/.cargo/bin"
-    let destination = dirs::home_dir()
-        .unwrap()
-        .join(".cargo")
-        .join("bin")
-        .join(program);
-    std::fs::copy(program, destination).unwrap();
-
-    // Update program version in "$HOME/.cargo/.crates.toml"
-    let reg_path = dirs::home_dir()
-        .unwrap()
-        .join(".cargo")
-        .join(".crates.toml");
-
-    let reg_data = std::fs::read_to_string(&reg_path).unwrap();
-
-    let mut table: toml::map::Map<String, toml::Value> = toml::from_str(&reg_data.trim()).unwrap();
-    let mut program_entry = None;
-    let mut table_inner: toml::value::Table = table["v1"].clone().try_into().unwrap();
-
-    for key in table_inner.keys() {
-        if key.starts_with(program) {
-            program_entry = Some(key.clone());
-            break;
-        }
-    }
-
-    if let Some(program_entry) = program_entry {
-        let value = table_inner.remove(&program_entry).unwrap();
-        let mut entry: Vec<String> = program_entry
-            .split_whitespace()
-            .map(ToString::to_string)
-            .collect();
-        // update version
-        entry[1] = version.to_string();
-        let new_entry = entry.iter().fold(String::new(), |acc, x| {
-            if !acc.is_empty() {
-                acc + " " + x
-            } else {
-                acc + x
-            }
-        });
-        table_inner.insert(new_entry, value);
-        table["v1"] = toml::Value::Table(table_inner);
-
-        "Backing up $HOME/.cargo/.crates.toml in $Temp/rustman\n".color_print(Color::Magenta);
-        // save old copie of the table in tmp folder in case something goes wrong
-        let tmp_folder = std::env::temp_dir().join("rustman");
-        let _ = std::fs::create_dir_all(&tmp_folder);
-        // add a "random" hash so more copies can remain
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let rnd = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            % 10000;
-        std::fs::copy(&reg_path, tmp_folder.join(&format!(".crates.toml.{}", rnd))).unwrap();
-
-        "Updating $HOME/.cargo/.crates.toml\n".color_print(Color::Green);
-        // write the new table
-        let mut reg_file = std::fs::File::create(&reg_path).unwrap();
-        write!(&mut reg_file, "{}", toml::to_string(&table).unwrap()).unwrap();
-    }
-    "Done!".color_print(Color::Blue);
-}
-
 fn remove_packages(packages: Vec<String>) {
     format!("Removing pacakges: {:?}\n", &packages).color_print(Color::Blue);
     packages.iter().for_each(|p| remove(p));
     "Done!".color_print(Color::Blue);
 }
 
-fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
+async fn get_from_name(packages: Vec<String>) -> Result<()> {
     let raw_hits = search(&packages)?;
 
     if raw_hits.is_empty() {
-        return Err(Errors::Custom("No matches found!"));
+        return Err("No matches found!".into());
     }
 
     let hit = Arc::new(Mutex::new(vec![]));
@@ -242,17 +111,24 @@ fn get_from_name(packages: Vec<String>) -> Result<(), Errors> {
 
     let hit_c = hit.clone();
 
-    raw_hits
+    let client = reqwest::Client::new();
+    let f = raw_hits
         .into_iter()
-        .unchained_for_each(move |(name, version, description)| {
+        .map(move |(name, version, description)| {
             let hit_cc = hit_c.clone();
             let progress_c = progress.clone();
-            if is_bin(&name, &version) {
-                hit_cc.lock().unwrap().push((name, version, description));
-                progress_c.lock().unwrap().advance();
-                progress_c.lock().unwrap().print();
-            }
+            let client = client.clone();
+
+            tokio::spawn(async move {
+                if is_bin(client, &name, &version).await.unwrap() {
+                    hit_cc.lock().unwrap().push((name, version, description));
+                    progress_c.lock().unwrap().advance();
+                    progress_c.lock().unwrap().print();
+                }
+            })
         });
+
+    futures::future::join_all(f).await;
 
     //new line
     println!();
@@ -276,7 +152,7 @@ fn get_from_link(link: &str) {
         .unwrap();
 }
 
-fn full_update() -> Result<(), Errors> {
+fn full_update() -> Result<()> {
     let installed = look_for_installed();
 
     let online_versions = Arc::new(Mutex::new(vec![]));
@@ -284,7 +160,7 @@ fn full_update() -> Result<(), Errors> {
 
     let online_versions_c = online_versions.clone();
 
-    installed.clone().into_iter().unchained_for_each(move |p| {
+    installed.clone().into_iter().for_each(move |p| {
         let online_versions_cc = online_versions_c.clone();
         let progress_c = progress.clone();
 
@@ -383,7 +259,7 @@ fn diff<'a>(
     res
 }
 
-fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
+fn main_loop(r: Vec<(String, String, String)>) -> Result<()> {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let installed = look_for_installed();
     let num = r.len();
@@ -431,13 +307,10 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
-    let input = input
-        .trim_end()
-        .parse::<usize>()
-        .map_err(|_| Errors::Custom("error while parsing input"))?;
+    let input = input.trim_end().parse::<usize>()?;
 
     if num < input {
-        return Err(Errors::Custom("Input is incorrect"));
+        return Err("Input is incorrect".into());
     }
 
     let reqeusted = r.get(num - input);
@@ -445,13 +318,13 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<(), Errors> {
     if let Some(req) = reqeusted {
         install(&[&req.0]);
     } else {
-        return Err(Errors::Custom("0 is not a valid input"));
+        return Err("0 is not a valid input".into());
     }
 
     Ok(())
 }
 
-fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>, Errors> {
+fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>> {
     let hit = search(vec![s.to_owned()].as_slice())?;
     let hit = hit.get(0);
     if let Some(h) = hit.as_ref() {
@@ -462,8 +335,7 @@ fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>, Error
     Ok(None)
 }
 
-#[cfg(not(test))]
-fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
+fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>> {
     let out = std::process::Command::new("cargo")
         .args(&["search", "--limit", "100"])
         .args(s)
@@ -484,14 +356,6 @@ fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
 
     Ok(results)
 }
-#[cfg(test)]
-fn search(_s: &[String]) -> Result<Vec<(Name, Version, Description)>, Errors> {
-    Ok(vec![(
-        "irust".to_string(),
-        "0.6.1".to_string(),
-        "".to_string(),
-    )])
-}
 
 fn parse_version_desc(s: &str) -> (Name, Version) {
     let mut s = s.split('#');
@@ -505,18 +369,14 @@ fn parse_version_desc(s: &str) -> (Name, Version) {
     (v, d)
 }
 
-#[cfg(not(test))]
-fn is_bin(n: &str, v: &str) -> bool {
-    let doc = format!("https://docs.rs/crate/{}/{}", n, v);
-    let mut writer = Vec::new();
-    http_req::request::get(doc, &mut writer).unwrap();
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-    let writer = String::from_utf8(writer).unwrap();
-    writer.contains("is not a library")
-}
-#[cfg(test)]
-fn is_bin(_n: &str, _v: &str) -> bool {
-    true
+async fn is_bin(client: reqwest::Client, n: &str, v: &str) -> Result<bool> {
+    let doc = format!("https://docs.rs/crate/{}/{}", n, v);
+
+    let resp = client.get(&doc).send().await?.text().await?;
+
+    Ok(resp.contains("is not a library"))
 }
 
 fn install(s: &[&str]) {
