@@ -181,9 +181,11 @@ async fn full_update() -> Result<()> {
         let online_versions = online_versions.clone();
         let progress = progress.clone();
         tokio::spawn(async move {
-            let p = search_one_pkg(client, &p.0).await;
-            if let Ok(p) = p {
-                online_versions.lock().expect(MUTEX_LOCK_ERROR).push(p);
+            match search_one_pkg(client, &p.0).await {
+                Ok(p) => {
+                    online_versions.lock().expect(MUTEX_LOCK_ERROR).push(p);
+                }
+                Err(e) => eprintln!("Unable to lookup {} verison. Error: {}", p.0, e),
             }
             let mut progress = progress.lock().expect(MUTEX_LOCK_ERROR);
             progress.advance();
