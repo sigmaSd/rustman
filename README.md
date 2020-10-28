@@ -30,4 +30,7 @@ Search and install rust binaires
 
 <img src="./rustman.png" width="70%" height="60%">
 
+## Releases
+Automatic releases by github actions are uploaded here https://github.com/sigmaSd/rustman/releases
+
 ## [Changelog](./CHANGELOG.md)
