@@ -71,9 +71,7 @@ fn show_installed() {
     let max_width = installed.iter().map(|p| p.0.len()).max().unwrap();
 
     installed.into_iter().for_each(|p| {
-        let offset: String = std::iter::repeat(" ").take(max_width - p.0.len()).collect();
-
-        format!("{}{}\t", p.0, offset).color_print(Color::Yellow);
+        format!("{:width$}\t", p.0, width = max_width).color_print(Color::Yellow);
         format!("{}\n", p.1).color_print(Color::Red);
     });
 }
@@ -194,39 +192,47 @@ async fn full_update() -> Result<()> {
         return Ok(());
     }
 
-    let widths: (usize, usize) = needs_update_pkgs
-        .iter()
-        .map(|p| (p.0.len(), p.1.len()))
-        .max()
-        .unwrap_or_default();
-
-    let offset1 = widths.0.saturating_sub(4);
-    let offset2 = widths.1.saturating_sub(9);
-    let installed_col_offset = offset1 + 4;
-    let available_col_offset = installed_col_offset + offset2;
+    let w1 = std::cmp::max(
+        needs_update_pkgs
+            .iter()
+            .map(|p| p.0.len())
+            .max()
+            .unwrap_or_default(),
+        "Name".len(),
+    );
+    let w2 = std::cmp::max(
+        needs_update_pkgs
+            .iter()
+            .map(|p| p.1.len())
+            .max()
+            .unwrap_or_default(),
+        "Installed".len(),
+    );
+    let w3 = std::cmp::max(
+        needs_update_pkgs
+            .iter()
+            .map(|p| p.2.len())
+            .max()
+            .unwrap_or_default(),
+        "Available".len(),
+    );
 
     format!(
-        "Name{}\tInstalled{}\tAvailable",
-        std::iter::repeat(" ").take(offset1).collect::<String>(),
-        std::iter::repeat(" ").take(offset2).collect::<String>(),
+        "{:w1$}\t{:w2$}\t{:w3$}",
+        "Name",
+        "Installed",
+        "Available",
+        w1 = w1,
+        w2 = w2,
+        w3 = w3,
     )
     .color_print(Color::Cyan);
     println!();
 
     for package in &needs_update_pkgs {
-        let offsets = (
-            std::iter::repeat(" ")
-                .take(installed_col_offset.saturating_sub(package.0.len()))
-                .collect::<String>(),
-            std::iter::repeat(" ")
-                .take(available_col_offset)
-                .collect::<String>(),
-        );
-        package.0.color_print(Color::Blue);
-        format!("{}\t", offsets.0).color_print(Color::White);
-        package.1.color_print(Color::Green);
-        format!("{}\t", offsets.1).color_print(Color::White);
-        package.2.color_print(Color::Yellow);
+        format!("{:w1$}\t", package.0, w1 = w1).color_print(Color::Blue);
+        format!("{:w2$}\t", package.1, w2 = w2).color_print(Color::Green);
+        format!("{:w3$}\t", package.2, w3 = w3).color_print(Color::Yellow);
         println!();
     }
 
