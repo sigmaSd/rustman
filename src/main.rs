@@ -1,20 +1,23 @@
+use dirs_next as dirs;
+use serde::Deserialize;
 use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+
 mod colors;
 use colors::Colors;
-use dirs_next as dirs;
 
 type Name = String;
 type Version = String;
 type OnlineVersion = String;
 type Description = String;
 
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 enum Action {
     FullUpdate,
-    _GetFromGit(String),
     SearchByName(Vec<String>),
     InstallPackage(Vec<String>),
     RemovePackage(Vec<String>),
@@ -44,8 +47,7 @@ async fn async_main() {
                 stdout.flush().unwrap();
             }
         },
-        Action::_GetFromGit(link) => get_from_link(&link),
-        Action::FullUpdate => full_update().unwrap_or_default(),
+        Action::FullUpdate => full_update().await.unwrap_or_default(),
         Action::InstallPackage(packages) => install_packages(packages),
         Action::RemovePackage(packages) => remove_packages(packages),
         Action::ShowInstalled => show_installed(),
@@ -58,7 +60,7 @@ fn parse_args() -> Action {
     match envs.get(0).map(|s| s.as_str()) {
         Some("-S") => Action::InstallPackage(envs[1..].to_vec()),
         Some("-R") => Action::RemovePackage(envs[1..].to_vec()),
-        Some("--installed") => Action::ShowInstalled,
+        Some("--list") => Action::ShowInstalled,
         Some(_) => Action::SearchByName(envs),
         None => Action::FullUpdate,
     }
@@ -136,41 +138,40 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
     main_loop(Arc::try_unwrap(hit).unwrap().into_inner().unwrap())
 }
 
-fn get_from_link(link: &str) {
-    let tmp_dir = std::env::temp_dir()
-        .join("rustman")
-        .join(link.split('/').last().unwrap());
-    let _ = fs::create_dir_all(&tmp_dir);
-
-    Command::new("git")
-        .current_dir(&tmp_dir)
-        .arg("clone")
-        .arg(link)
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
-}
-
-fn full_update() -> Result<()> {
+async fn full_update() -> Result<()> {
     let installed = look_for_installed();
 
     let online_versions = Arc::new(Mutex::new(vec![]));
     let progress = Arc::new(Mutex::new(Progress::new(installed.len())));
 
-    let online_versions_c = online_versions.clone();
+    //let online_versions_c = online_versions.clone();
 
-    installed.clone().into_iter().for_each(move |p| {
-        let online_versions_cc = online_versions_c.clone();
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_str("rustman")?,
+    );
+
+    let client = reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap();
+
+    let f = installed.clone().into_iter().map(|p| {
+        let client = client.clone();
+        let online_versions_c = online_versions.clone();
         let progress_c = progress.clone();
-
-        let p = search_one_pkg(&p.0);
-        if let Ok(Some(p)) = p {
-            online_versions_cc.lock().unwrap().push(p);
-        }
-        progress_c.lock().unwrap().advance();
-        progress_c.lock().unwrap().print();
+        tokio::spawn(async move {
+            let p = search_one_pkg(client, &p.0).await;
+            if let Ok(Some(p)) = p {
+                online_versions_c.lock().unwrap().push(p);
+            }
+            progress_c.lock().unwrap().advance();
+            progress_c.lock().unwrap().print();
+        })
     });
+
+    futures::future::join_all(f).await;
 
     //new line
     println!();
@@ -324,15 +325,36 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<()> {
     Ok(())
 }
 
-fn search_one_pkg(s: &str) -> Result<Option<(Name, Version, Description)>> {
-    let hit = search(vec![s.to_owned()].as_slice())?;
-    let hit = hit.get(0);
-    if let Some(h) = hit.as_ref() {
-        if h.0 == s {
-            return Ok(hit.cloned());
-        }
-    }
-    Ok(None)
+#[derive(Deserialize, Debug)]
+struct Resp {
+    #[serde(rename = "crate")]
+    r_crate: Crate,
+}
+
+#[derive(Deserialize, Debug)]
+struct Crate {
+    description: String,
+    max_version: String,
+    name: String,
+}
+
+async fn search_one_pkg(
+    client: reqwest::Client,
+    s: &str,
+) -> Result<Option<(Name, Version, Description)>> {
+    const URL: &str = "https://crates.io/api/v1/crates";
+    let resp: Resp = client
+        .get(&format!("{}/{}", URL, s))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    Ok(Some((
+        resp.r_crate.name,
+        resp.r_crate.max_version,
+        resp.r_crate.description,
+    )))
 }
 
 fn search(s: &[String]) -> Result<Vec<(Name, Version, Description)>> {
@@ -368,8 +390,6 @@ fn parse_version_desc(s: &str) -> (Name, Version) {
 
     (v, d)
 }
-
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 async fn is_bin(client: reqwest::Client, n: &str, v: &str) -> Result<bool> {
     let doc = format!("https://docs.rs/crate/{}/{}", n, v);
@@ -474,9 +494,4 @@ impl Progress {
         write!(&mut self.printer, "\t\t[{}{}]", progress, remaining).unwrap();
         self.printer.flush().unwrap();
     }
-}
-
-#[test]
-fn t() {
-    main();
 }
