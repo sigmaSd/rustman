@@ -136,10 +136,12 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
 
             tokio::spawn(async move {
                 match is_bin(client, &name, &version).await {
-                    Ok(_) => {
-                        hit.lock()
-                            .expect(MUTEX_LOCK_ERROR)
-                            .push((name, version, description));
+                    Ok(is_bin) => {
+                        if is_bin {
+                            hit.lock()
+                                .expect(MUTEX_LOCK_ERROR)
+                                .push((name, version, description));
+                        }
                     }
                     Err(e) => {
                         eprintln!("Error while checking crate {} type. Error: {}", name, e);
@@ -169,7 +171,7 @@ async fn full_update() -> Result<()> {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_str("rustman")?,
+        reqwest::header::HeaderValue::from_str("rustman (https://github.com/sigmaSd/rustman)")?,
     );
 
     let client = reqwest::Client::builder()
