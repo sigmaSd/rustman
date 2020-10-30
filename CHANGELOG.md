@@ -1,3 +1,8 @@
+**0.5.1**
+ - fix regression (is_bin was being ignored)
+ - add bot url
+ - more error handling
+
 **0.5.0**
 - Port to async (Tokio runtime + reqwest)
 - Clean up code, handle errors, remove unnecessary functions, etc..
