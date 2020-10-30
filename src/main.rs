@@ -135,28 +135,38 @@ async fn get_from_name(packages: Vec<String>) -> Result<()> {
             let client = client.clone();
 
             tokio::spawn(async move {
-                match is_bin(client, &name, &version).await {
+                let maybe_err = match is_bin(client, &name, &version).await {
                     Ok(is_bin) => {
                         if is_bin {
                             hit.lock()
                                 .expect(MUTEX_LOCK_ERROR)
                                 .push((name, version, description));
                         }
+                        None
                     }
-                    Err(e) => {
-                        eprintln!("Error while checking crate {} type. Error: {}", name, e);
-                    }
+                    Err(e) => Some(format!(
+                        "Error while checking crate {} type. Error: {}",
+                        name, e
+                    )),
                 };
                 let mut progress = progress.lock().expect(MUTEX_LOCK_ERROR);
                 progress.advance();
                 progress.print().expect(PROGRESS_PRINTING_ERROR);
+                maybe_err
             })
         });
 
-    futures::future::join_all(f).await;
+    let res = futures::future::join_all(f).await;
 
     //new line
     println!();
+
+    // check for errors
+    for f in res {
+        if let Ok(Some(e)) = f {
+            eprintln!("{}\n", e);
+        }
+    }
 
     // safe unwrap since we awaited all futures + hitc_c was consumed
     main_loop(Arc::try_unwrap(hit).unwrap().into_inner()?)
@@ -183,22 +193,31 @@ async fn full_update() -> Result<()> {
         let online_versions = online_versions.clone();
         let progress = progress.clone();
         tokio::spawn(async move {
-            match search_one_pkg(client, &p.0).await {
+            let maybe_err = match search_one_pkg(client, &p.0).await {
                 Ok(p) => {
                     online_versions.lock().expect(MUTEX_LOCK_ERROR).push(p);
+                    None
                 }
-                Err(e) => eprintln!("Unable to lookup {} verison. Error: {}", p.0, e),
-            }
+                Err(e) => Some(format!("Unable to lookup {} version. Error: {}", p.0, e)),
+            };
             let mut progress = progress.lock().expect(MUTEX_LOCK_ERROR);
             progress.advance();
             progress.print().expect(PROGRESS_PRINTING_ERROR);
+            maybe_err
         })
     });
 
-    futures::future::join_all(f).await;
+    let res = futures::future::join_all(f).await;
 
     //new line
     println!();
+
+    // check for errors
+    for f in res {
+        if let Ok(Some(e)) = f {
+            eprintln!("{}\n", e);
+        }
+    }
 
     // clear color
     let mut stdout = StandardStream::stdout(ColorChoice::Auto);
