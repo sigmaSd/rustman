@@ -1,3 +1,6 @@
+**0.5.2**
+- sync error reporting
+
 **0.5.1**
  - fix regression (is_bin was being ignored)
  - add bot url
