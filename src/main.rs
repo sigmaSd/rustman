@@ -99,8 +99,9 @@ fn install_packages(packages: Vec<String>) -> Result<()> {
                 }
             });
     format!("Installing pacakges: {}\n", &actual_pkgs).color_print(Color::Blue)?;
-    install(&packages.iter().map(|s| s.as_str()).collect::<Vec<&str>>())
-        .unwrap_or_else(|_| panic!("Error installing {:?}", packages));
+    if let Err(e) = install(&packages.iter().map(|s| s.as_str()).collect::<Vec<&str>>()) {
+        eprintln!("Error installing {:?} error: {}", packages, e);
+    }
     "Done!".color_print(Color::Blue)?;
     Ok(())
 }
@@ -108,7 +109,9 @@ fn install_packages(packages: Vec<String>) -> Result<()> {
 fn remove_packages(packages: Vec<String>) -> Result<()> {
     format!("Removing pacakges: {:?}\n", &packages).color_print(Color::Blue)?;
     packages.iter().for_each(|p| {
-        remove(p).unwrap_or_else(|_| panic!("Error removing {}", p));
+        if let Err(e) = remove(p) {
+            eprintln!("Error removing {} error: {}", p, e);
+        }
     });
 
     "Done!".color_print(Color::Blue)?;
@@ -281,7 +284,9 @@ async fn full_update() -> Result<()> {
 
     let update_all = |v: &Vec<(&Name, &Version, &Description)>| {
         v.iter().for_each(|p| {
-            install(&[p.0]).unwrap_or_else(|_| panic!("Error installing {}", p.0));
+            if let Err(e) = install(&[p.0]) {
+                eprintln!("Error installing {} error: {}", p.0, e);
+            }
         });
     };
 
@@ -368,7 +373,9 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<()> {
     let reqeusted = r.get(num - input);
 
     if let Some(req) = reqeusted {
-        install(&[&req.0]).unwrap_or_else(|_| panic!("Error installing {}", req.0));
+        if let Err(e) = install(&[&req.0]) {
+            eprintln!("Error installing {} error: {}", req.0, e);
+        }
     } else {
         return Err("0 is not a valid input".into());
     }
