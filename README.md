@@ -17,6 +17,10 @@ Search and install rust binaires
 
 `rustman -S $package`
 
+*install a pacakge with nightly*
+
+`rustman -S +nightly $package`
+
 *remove a pacakge*
 
 `rustman -R $package`

@@ -1,3 +1,6 @@
+**0.5.3**
+- Add the ability to specify the toolchain for the install, example: `rustman -S +nightly program`
+
 **0.5.2**
 - sync error reporting
 
