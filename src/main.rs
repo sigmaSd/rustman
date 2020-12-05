@@ -22,7 +22,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 enum Action {
     FullUpdate,
     SearchByName(Vec<String>),
-    InstallPackage(Vec<String>),
+    InstallPackage(ToolChain, Vec<String>),
     RemovePackage(Vec<String>),
     ShowInstalled,
 }
@@ -52,7 +52,7 @@ async fn async_main() -> Result<()> {
             }
         }
         Action::FullUpdate => full_update().await?,
-        Action::InstallPackage(packages) => install_packages(packages)?,
+        Action::InstallPackage(toolchain, packages) => install_packages(toolchain, packages)?,
         Action::RemovePackage(packages) => remove_packages(packages)?,
         Action::ShowInstalled => show_installed()?,
     }
@@ -63,7 +63,13 @@ fn parse_args() -> Action {
     let envs: Vec<String> = std::env::args().skip(1).collect();
 
     match envs.get(0).map(|s| s.as_str()) {
-        Some("-S") => Action::InstallPackage(envs[1..].to_vec()),
+        Some("-S") => {
+            if envs.get(1).map(|s| s.as_str()) == Some("+nightly") {
+                Action::InstallPackage(ToolChain::Nightly, envs[2..].to_vec())
+            } else {
+                Action::InstallPackage(ToolChain::Stable, envs[1..].to_vec())
+            }
+        }
         Some("-R") => Action::RemovePackage(envs[1..].to_vec()),
         Some("--list") => Action::ShowInstalled,
         Some(_) => Action::SearchByName(envs),
@@ -86,7 +92,7 @@ fn show_installed() -> Result<()> {
     Ok(())
 }
 
-fn install_packages(packages: Vec<String>) -> Result<()> {
+fn install_packages(toolchain: ToolChain, packages: Vec<String>) -> Result<()> {
     let actual_pkgs =
         packages
             .iter()
@@ -98,8 +104,16 @@ fn install_packages(packages: Vec<String>) -> Result<()> {
                     acc + " " + x
                 }
             });
-    format!("Installing pacakges: {}\n", &actual_pkgs).color_print(Color::Blue)?;
-    if let Err(e) = install(&packages.iter().map(|s| s.as_str()).collect::<Vec<&str>>()) {
+    format!(
+        "Installing pacakges: {}\nToolchain: {}\n",
+        &actual_pkgs,
+        toolchain.as_str()
+    )
+    .color_print(Color::Blue)?;
+    if let Err(e) = install(
+        toolchain,
+        &packages.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+    ) {
         eprintln!("Error installing {:?} error: {}", packages, e);
     }
     "Done!".color_print(Color::Blue)?;
@@ -284,7 +298,9 @@ async fn full_update() -> Result<()> {
 
     let update_all = |v: &Vec<(&Name, &Version, &Description)>| {
         v.iter().for_each(|p| {
-            if let Err(e) = install(&[p.0]) {
+            // For full update we will just hard code the toolchain to Stable
+            // Note This can be improved
+            if let Err(e) = install(ToolChain::Stable, &[p.0]) {
                 eprintln!("Error installing {} error: {}", p.0, e);
             }
         });
@@ -373,7 +389,8 @@ fn main_loop(r: Vec<(String, String, String)>) -> Result<()> {
     let reqeusted = r.get(num - input);
 
     if let Some(req) = reqeusted {
-        if let Err(e) = install(&[&req.0]) {
+        // hardcode to stable
+        if let Err(e) = install(ToolChain::Stable, &[&req.0]) {
             eprintln!("Error installing {} error: {}", req.0, e);
         }
     } else {
@@ -458,9 +475,22 @@ async fn is_bin(client: reqwest::Client, n: &str, v: &str) -> Result<bool> {
 
     Ok(resp.contains("is not a library"))
 }
+enum ToolChain {
+    Stable,
+    Nightly,
+}
+impl ToolChain {
+    fn as_str(&self) -> &str {
+        match self {
+            ToolChain::Stable => "+stable",
+            ToolChain::Nightly => "+nightly",
+        }
+    }
+}
 
-fn install(s: &[&str]) -> Result<()> {
+fn install(toolchain: ToolChain, s: &[&str]) -> Result<()> {
     Command::new("cargo")
+        .arg(toolchain.as_str())
         .args(&["install", "--force"])
         .args(s)
         .spawn()?
