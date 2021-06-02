@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "rustman"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "dirs-next",
  "futures",
