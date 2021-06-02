@@ -28,9 +28,9 @@ enum Action {
 }
 
 fn main() {
-    tokio::runtime::Builder::new()
-        .threaded_scheduler()
-        .enable_all()
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_time()
+        .enable_io()
         .build()
         .expect("Error building tokio runtime")
         .block_on(async {
